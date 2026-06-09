@@ -17,9 +17,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -163,10 +162,6 @@ class FolderCreate(BaseModel):
 class PushRequest(BaseModel):
     target_instance_id: str
     target_path: str
-
-
-class PauseRequest(BaseModel):
-    pass
 
 
 # ── Instance endpoints ──────────────────────────────────────────────────────────
@@ -317,53 +312,21 @@ def _device_info(device: dict, conn_map: dict) -> dict:
 @app.get("/api/transfers")
 async def get_transfers():
     instances = store.load_instances()
-    result: list[dict] = []
+    inst_results = await asyncio.gather(*[_fetch_instance_transfers(i) for i in instances])
+
     overall_need = 0
     overall_total = 0
     overall_in_speed = 0.0
     overall_out_speed = 0.0
+    for ir in inst_results:
+        overall_in_speed  += ir.get("_in_speed", 0.0)
+        overall_out_speed += ir.get("_out_speed", 0.0)
+        for f in ir.get("folders", []):
+            overall_need  += f.get("needBytes", 0)
+            overall_total += f.get("totalBytes", 0)
 
-    for inst in instances:
-        iid = inst["id"]
-        url, key = inst["url"], inst["api_key"]
-        in_speed = _smoothed_rates.get(f"{iid}:in", 0.0)
-        out_speed = _smoothed_rates.get(f"{iid}:out", 0.0)
-        overall_in_speed += in_speed
-        overall_out_speed += out_speed
-
-        try:
-            folders = await st.get_config_folders(url, key)
-            folder_metrics = []
-            for fdr in folders:
-                fid = fdr["id"]
-                fkey = f"{iid}:{fid}"
-                try:
-                    dbs = await st.get_db_status(url, key, fid)
-                    global_b = dbs.get("globalBytes", 0)
-                    need_b = dbs.get("needBytes", 0)
-                    in_sync = dbs.get("inSyncBytes", 0)
-                    pct = round((in_sync / global_b * 100) if global_b else 100, 1)
-                    speed = _smoothed_rates.get(f"{fkey}:speed", 0.0)
-                    eta = int(need_b / speed) if speed > 0 and need_b > 0 else None
-                    overall_need += need_b
-                    overall_total += global_b
-                    folder_metrics.append({
-                        "id": fid,
-                        "label": fdr.get("label", fid),
-                        "paused": fdr.get("paused", False),
-                        "state": dbs.get("state", "unknown"),
-                        "percent": pct,
-                        "totalBytes": global_b,
-                        "needBytes": need_b,
-                        "speedBytesPerSec": round(speed, 1),
-                        "speedApproximate": True,
-                        "etaSeconds": eta,
-                    })
-                except Exception as e:
-                    folder_metrics.append({"id": fid, "error": str(e)})
-            result.append({"instanceId": iid, "folders": folder_metrics})
-        except Exception:
-            result.append({"instanceId": iid, "folders": [], "offline": True})
+    # Strip internal speed fields before returning
+    result = [{k: v for k, v in ir.items() if not k.startswith("_")} for ir in inst_results]
 
     overall_pct = round(
         ((overall_total - overall_need) / overall_total * 100) if overall_total else 100, 1
@@ -382,6 +345,47 @@ async def get_transfers():
             "etaSeconds": overall_eta,
         },
     }
+
+
+async def _fetch_instance_transfers(inst: dict) -> dict:
+    iid = inst["id"]
+    url, key = inst["url"], inst["api_key"]
+    in_speed  = _smoothed_rates.get(f"{iid}:in", 0.0)
+    out_speed = _smoothed_rates.get(f"{iid}:out", 0.0)
+    try:
+        folders = await st.get_config_folders(url, key)
+        folder_statuses = await asyncio.gather(*[
+            st.get_db_status(url, key, fdr["id"]) for fdr in folders
+        ], return_exceptions=True)
+
+        folder_metrics = []
+        for fdr, dbs in zip(folders, folder_statuses):
+            fid = fdr["id"]
+            fkey = f"{iid}:{fid}"
+            if isinstance(dbs, Exception):
+                folder_metrics.append({"id": fid, "error": str(dbs)})
+                continue
+            global_b = dbs.get("globalBytes", 0)
+            need_b   = dbs.get("needBytes", 0)
+            in_sync  = dbs.get("inSyncBytes", 0)
+            pct      = round((in_sync / global_b * 100) if global_b else 100, 1)
+            speed    = _smoothed_rates.get(f"{fkey}:speed", 0.0)
+            eta      = int(need_b / speed) if speed > 0 and need_b > 0 else None
+            folder_metrics.append({
+                "id": fid,
+                "label": fdr.get("label", fid),
+                "paused": fdr.get("paused", False),
+                "state": dbs.get("state", "unknown"),
+                "percent": pct,
+                "totalBytes": global_b,
+                "needBytes": need_b,
+                "speedBytesPerSec": round(speed, 1),
+                "speedApproximate": True,
+                "etaSeconds": eta,
+            })
+        return {"instanceId": iid, "folders": folder_metrics, "_in_speed": in_speed, "_out_speed": out_speed}
+    except Exception:
+        return {"instanceId": iid, "folders": [], "offline": True, "_in_speed": 0.0, "_out_speed": 0.0}
 
 
 # ── Pause / resume folder ─────────────────────────────────────────────────────
@@ -555,10 +559,7 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
 # ── Static frontend ─────────────────────────────────────────────────────────────
 WEB_DIR = Path(__file__).parent / "web"
 
-@app.get("/")
-async def serve_index():
-    return FileResponse(WEB_DIR / "index.html")
-
+# html=True makes StaticFiles serve index.html for / and unknown paths
 app.mount("/", StaticFiles(directory=str(WEB_DIR), html=True), name="static")
 
 

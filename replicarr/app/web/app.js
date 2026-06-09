@@ -96,8 +96,6 @@ function applyPoll() {
   if (selectedInstId)             updateDetailPanel();
 }
 
-setInterval(poll, 3000);
-
 // ── Tab routing ───────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
@@ -112,9 +110,28 @@ function switchTab(tab) {
   if (tab === "instances")  renderInstancesTab();
 }
 
-// ── Sidebar count ─────────────────────────────────────────────────────────────
+// ── Sidebar count & filters ───────────────────────────────────────────────────
 function updateSidebarCount() {
   $("#sb-count").textContent = instances.length;
+}
+
+let activeFilter = null;
+
+function applyFilter(filter) {
+  activeFilter = activeFilter === filter ? null : filter;
+  $$("[id^='filter-']").forEach(el => el.classList.remove("active"));
+  if (activeFilter) $(`#filter-${activeFilter}`)?.classList.add("active");
+  renderOverview();
+}
+
+function filteredStatus() {
+  if (!activeFilter) return statusData;
+  return statusData.filter(inst => {
+    if (activeFilter === "online")  return inst.online === true;
+    if (activeFilter === "offline") return inst.online === false;
+    if (activeFilter === "syncing") return (inst.folders || []).some(f => f.state === "syncing");
+    return true;
+  });
 }
 
 // ── Overview tab ──────────────────────────────────────────────────────────────
@@ -125,6 +142,7 @@ function renderOverview() {
 
 function renderQuickCards() {
   const el = $("#quick-cards");
+  const visible = filteredStatus();
   if (!statusData.length) {
     el.innerHTML = `<div class="loading-row" style="grid-column:1/-1">
       No instances. <button class="btn btn-primary btn-sm" onclick="switchTab('instances')">Add Instance</button>
@@ -132,7 +150,7 @@ function renderQuickCards() {
     return;
   }
 
-  el.innerHTML = statusData.map(inst => {
+  el.innerHTML = visible.map(inst => {
     const online = inst.online;
     const folderCount = inst.folders?.length ?? 0;
     const totalBytes = (inst.folders || []).reduce((s, f) => s + (f.globalBytes || 0), 0);
@@ -622,6 +640,11 @@ let _pushFolderId  = null;
 
 function openPushModal(e, instId, folderId) {
   if (e) e.stopPropagation();
+  const targets = instances.filter(i => i.id !== instId);
+  if (!targets.length) {
+    alert("No other instances to push to. Add a second Syncthing instance first.");
+    return;
+  }
   _pushSrcInstId = instId;
   _pushFolderId  = folderId;
   const inst   = statusData.find(i => i.id === instId);
@@ -629,10 +652,7 @@ function openPushModal(e, instId, folderId) {
   $("#modal-push-folder").textContent = folder?.label || folderId;
   $("#modal-push-source").textContent = inst?.name || instId;
   const sel = $("#modal-push-target");
-  sel.innerHTML = instances
-    .filter(i => i.id !== instId)
-    .map(i => `<option value="${esc(i.id)}">${esc(i.name)}</option>`)
-    .join("");
+  sel.innerHTML = targets.map(i => `<option value="${esc(i.id)}">${esc(i.name)}</option>`).join("");
   $("#modal-push-path").value = "";
   $("#modal-push-steps").classList.add("hidden");
   $("#modal-push-steps").innerHTML = "";
@@ -704,12 +724,14 @@ function toggleTheme() {
   await loadInstances();
   await poll();
   switchTab("overview");
+  // Start polling only after boot to avoid race conditions
+  setInterval(poll, 3000);
 })();
 
-// Expose for inline handlers
+// Expose for inline handlers (includes renderFolderTable used in detail panel onclick strings)
 Object.assign(window, {
-  toggleTheme,
-  switchTab, selectInstance, selectFolder, closeDetail, detailTab,
+  toggleTheme, applyFilter,
+  switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
   actFolder, actFolderDetail, actDevice,
   openAddInstance, openEditInstance, saveInstance, deleteInstance, testInstance,
   openAddFolder, saveFolder,

@@ -50,10 +50,6 @@ def load_instances() -> list[dict[str, Any]]:
     return _load_raw()
 
 
-def save_instances(instances: list[dict[str, Any]]) -> None:
-    _save_raw(instances)
-
-
 def merge_config_instances(
     config_instances: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
