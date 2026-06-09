@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Replicarr</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Topbar ──────────────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="topbar-brand">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+      </svg>
+      Replicarr
+    </div>
+    <nav class="topbar-tabs">
+      <button class="topbar-tab active" data-tab="overview" onclick="switchTab('overview')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        Overview
+      </button>
+      <button class="topbar-tab" data-tab="transfers" onclick="switchTab('transfers')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 17l4 4 4-4"/><path d="M12 12v9"/><path d="M16 7l-4-4-4 4"/><path d="M12 3v5"/></svg>
+        Transfers
+      </button>
+      <button class="topbar-tab" data-tab="instances" onclick="switchTab('instances')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        Instances
+      </button>
+    </nav>
+    <div class="topbar-spacer"></div>
+    <div class="topbar-search">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      Search instances…
+    </div>
+    <button class="btn-theme" id="btn-theme" title="Toggle dark mode" onclick="toggleTheme()">
+      <!-- Moon (shown in light mode) -->
+      <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+      </svg>
+      <!-- Sun (shown in dark mode) -->
+      <svg class="icon-sun" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="5"/>
+        <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+        <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+        <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+        <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-section">
+      <button class="sidebar-item active" data-tab="overview" onclick="switchTab('overview')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+        All Instances
+        <span class="count" id="sb-count">0</span>
+      </button>
+      <button class="sidebar-item" data-tab="transfers" onclick="switchTab('transfers')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 17l4 4 4-4"/><path d="M12 12v9"/><path d="M16 7l-4-4-4 4"/><path d="M12 3v5"/></svg>
+        Transfers
+      </button>
+      <button class="sidebar-item" data-tab="instances" onclick="switchTab('instances')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
+        Manage Instances
+      </button>
+    </div>
+
+    <div class="sidebar-label">Filters</div>
+    <button class="sidebar-item" id="filter-online">
+      <span class="dot dot-green"></span> Online
+    </button>
+    <button class="sidebar-item" id="filter-offline">
+      <span class="dot dot-red"></span> Offline
+    </button>
+    <button class="sidebar-item" id="filter-syncing">
+      <span class="dot dot-amber"></span> Syncing
+    </button>
+
+    <div class="sidebar-spacer"></div>
+    <div class="sidebar-bottom">
+      <button class="sidebar-item" onclick="switchTab('instances')">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
+        Settings
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── Main ────────────────────────────────────────────────────────────────── -->
+  <div class="main">
+    <div class="main-content">
+
+      <!-- Overview tab -->
+      <div class="tab-panel" data-panel="overview">
+        <!-- Quick access: instance cards -->
+        <div class="quick-access">
+          <div class="quick-access-header">
+            <span class="section-title">Quick Access</span>
+            <button class="btn-icon" title="Refresh" onclick="poll()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+            </button>
+          </div>
+          <div class="quick-cards" id="quick-cards">
+            <div class="loading-row">Loading…</div>
+          </div>
+        </div>
+
+        <!-- Folder table: shows folders for selected instance -->
+        <div class="file-table-wrap">
+          <div class="file-table-header">
+            <div class="breadcrumb" id="breadcrumb">
+              <span class="breadcrumb-part current">Select an instance above</span>
+            </div>
+            <div class="file-table-actions" id="table-actions" style="display:none">
+              <button class="btn btn-primary btn-sm" id="btn-add-folder">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Folder
+              </button>
+            </div>
+          </div>
+          <table class="table" id="folder-table">
+            <thead>
+              <tr>
+                <th style="width:42%">Name</th>
+                <th style="width:18%">Status</th>
+                <th style="width:18%">Size</th>
+                <th style="width:15%">Progress</th>
+                <th style="width:7%"></th>
+              </tr>
+            </thead>
+            <tbody id="folder-tbody">
+              <tr><td colspan="5" class="loading-row">Select an instance to view its folders.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Transfers tab -->
+      <div class="tab-panel hidden" data-panel="transfers">
+        <div class="stat-grid" id="transfer-stats">
+          <div class="loading-row">Loading…</div>
+        </div>
+        <div id="transfer-folders"></div>
+      </div>
+
+      <!-- Instances tab -->
+      <div class="tab-panel hidden" data-panel="instances">
+        <div class="file-table-wrap">
+          <div class="file-table-header">
+            <span class="section-title">Syncthing Instances</span>
+            <button class="btn btn-primary btn-sm" onclick="openAddInstance()">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add Instance
+            </button>
+          </div>
+          <table class="table">
+            <thead>
+              <tr>
+                <th style="width:35%">Instance</th>
+                <th style="width:20%">Status</th>
+                <th style="width:15%">Folders</th>
+                <th style="width:20%">Device ID</th>
+                <th style="width:10%"></th>
+              </tr>
+            </thead>
+            <tbody id="instances-tbody">
+              <tr><td colspan="5" class="loading-row">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div><!-- /main-content -->
+
+    <!-- ── Detail panel ──────────────────────────────────────────────────────── -->
+    <aside class="detail-panel hidden" id="detail-panel">
+      <div class="detail-header">
+        <div class="detail-icon" id="detail-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
+        </div>
+        <button class="btn-icon" onclick="closeDetail()" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="detail-body" id="detail-body">
+        <div class="loading-row">Select an instance or folder.</div>
+      </div>
+    </aside>
+
+  </div><!-- /main -->
+</div><!-- /app -->
+
+<!-- ── Add/Edit Instance modal ───────────────────────────────────────────────── -->
+<div id="modal-inst" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-inst-title">Add Instance</span>
+      <button class="btn-icon" onclick="closeModal('modal-inst')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-inst-error" class="alert alert-error hidden"></div>
+      <div class="field">
+        <label>Name</label>
+        <input id="modal-inst-name" type="text" placeholder="Local Syncthing" />
+      </div>
+      <div class="field">
+        <label>URL</label>
+        <input id="modal-inst-url" type="url" placeholder="http://syncthing:8384" />
+        <div class="field-hint">Base URL of the Syncthing REST API. Stored server-side only.</div>
+      </div>
+      <div class="field">
+        <label>API Key</label>
+        <input id="modal-inst-key" type="password" placeholder="Syncthing GUI API Key" />
+        <div class="field-hint">Settings → GUI → API Key. Never sent to the browser.</div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-inst')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveInstance()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Add Folder modal ──────────────────────────────────────────────────────── -->
+<div id="modal-folder" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Add Folder — <span id="modal-folder-inst" class="text-2"></span></span>
+      <button class="btn-icon" onclick="closeModal('modal-folder')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-folder-error" class="alert alert-error hidden"></div>
+      <div class="field">
+        <label>Folder ID</label>
+        <input id="modal-folder-id" type="text" placeholder="my-docs" />
+        <div class="field-hint">Must match exactly across all sharing instances.</div>
+      </div>
+      <div class="field">
+        <label>Label <span class="text-3">(optional)</span></label>
+        <input id="modal-folder-label" type="text" placeholder="My Documents" />
+      </div>
+      <div class="field">
+        <label>Path on this instance</label>
+        <input id="modal-folder-path" type="text" placeholder="/data/syncthing/my-docs" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-folder')">Cancel</button>
+      <button class="btn btn-primary" onclick="saveFolder()">Add Folder</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Push modal ────────────────────────────────────────────────────────────── -->
+<div id="modal-push" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">Push Folder</span>
+      <button class="btn-icon" onclick="closeModal('modal-push')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div id="modal-push-error" class="alert alert-error hidden"></div>
+      <div class="alert alert-info mb-12">
+        Sharing <strong id="modal-push-folder"></strong> from <strong id="modal-push-source"></strong>.
+        Replicarr orchestrates device registration and folder sharing — Syncthing moves the bytes.
+      </div>
+      <div class="field">
+        <label>Target instance</label>
+        <select id="modal-push-target"></select>
+      </div>
+      <div class="field">
+        <label>Path on target</label>
+        <input id="modal-push-path" type="text" placeholder="/data/syncthing/my-docs" />
+        <div class="field-hint">Where the synced data will land on the target machine.</div>
+      </div>
+      <div id="modal-push-steps" class="hidden mt-12"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeModal('modal-push')">Close</button>
+      <button id="modal-push-btn" class="btn btn-primary" onclick="executePush()">Execute Push</button>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

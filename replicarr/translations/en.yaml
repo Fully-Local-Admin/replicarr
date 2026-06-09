@@ -1,0 +1,19 @@
+configuration:
+  log_level:
+    name: Log level
+    description: Controls how verbose the Replicarr backend logs are.
+  instances:
+    name: Syncthing instances
+    description: >
+      Pre-configure Syncthing instances from the add-on config. These are locked
+      in the UI (they reappear on restart). For runtime-managed instances, use
+      the Replicarr dashboard.
+    name_field:
+      name: Name
+      description: A friendly display name for this Syncthing instance.
+    url_field:
+      name: URL
+      description: "Base URL of the Syncthing REST API, e.g. http://a0d7b954-syncthing:8384"
+    api_key_field:
+      name: API Key
+      description: The Syncthing GUI API key (Settings → GUI → API Key).

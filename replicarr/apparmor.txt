@@ -1,0 +1,38 @@
+#include <tunables/global>
+
+profile replicarr flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  # Python runtime
+  /usr/bin/python3* mr,
+  /usr/lib/python3*/ r,
+  /usr/lib/python3*/** mr,
+  /usr/local/lib/python3*/ r,
+  /usr/local/lib/python3*/** mr,
+
+  # App files
+  /app/ r,
+  /app/** mr,
+
+  # Persistent data volume
+  /data/ r,
+  /data/** rw,
+
+  # s6 / bashio
+  /usr/bin/with-contenv rix,
+  /usr/bin/bashio rix,
+  /usr/bin/s6* rix,
+  /run/s6/** rw,
+
+  # Temp files (bashio writes config here)
+  /tmp/ rw,
+  /tmp/** rw,
+
+  # Network (outbound HTTP to Syncthing instances)
+  network tcp,
+  network udp,
+
+  # Deny everything else
+  deny /proc/sysrq-trigger rw,
+  deny /sys/firmware/** rw,
+}
