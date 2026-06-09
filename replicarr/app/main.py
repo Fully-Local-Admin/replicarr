@@ -140,6 +140,43 @@ async def health():
     return {"status": "ok"}
 
 
+# ── HA storage discovery ───────────────────────────────────────────────────────
+@app.get("/api/storage")
+async def list_storage():
+    """
+    Returns local storage paths available inside the container:
+    - /data          — add-on persistent volume (always present)
+    - /media         — HA media share (if mounted)
+    - /share         — HA general share (if mounted)
+    - /backup        — HA backup share (if mounted)
+    - /config        — HA config share (if mounted, read-only usually)
+    Also returns subdirectories one level deep for each present path
+    so the wizard can let users pick a subfolder.
+    """
+    candidates = [
+        {"path": "/data",   "label": "Add-on data",     "description": "Persistent storage for this add-on"},
+        {"path": "/media",  "label": "HA Media",         "description": "/media share"},
+        {"path": "/share",  "label": "HA Share",         "description": "/share share"},
+        {"path": "/backup", "label": "HA Backup",        "description": "/backup share"},
+        {"path": "/config", "label": "HA Config",        "description": "/config share (usually read-only)"},
+    ]
+    result = []
+    for c in candidates:
+        p = Path(c["path"])
+        if not p.exists():
+            continue
+        subdirs = []
+        try:
+            subdirs = sorted([
+                str(child) for child in p.iterdir()
+                if child.is_dir() and not child.name.startswith(".")
+            ])[:50]  # cap at 50 to avoid huge responses
+        except PermissionError:
+            pass
+        result.append({**c, "present": True, "subdirs": subdirs})
+    return result
+
+
 # ── Pydantic models ────────────────────────────────────────────────────────────
 class InstanceCreate(BaseModel):
     name: str
@@ -200,6 +237,25 @@ async def delete_instance(inst_id: str):
         raise HTTPException(403, str(e))
     except KeyError as e:
         raise HTTPException(404, str(e))
+
+
+class WizardTestRequest(BaseModel):
+    url: str
+    api_key: str
+
+
+@app.post("/api/instances/_wizard_test")
+async def wizard_test(body: WizardTestRequest):
+    """Test a Syncthing connection without persisting — used by the Add Instance wizard."""
+    try:
+        status = await st.get_system_status(body.url.rstrip("/"), body.api_key)
+        return {"reachable": True, "ok": True, "myID": status.get("myID"), "version": status.get("version")}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code in (401, 403):
+            return {"reachable": True, "ok": False, "error": "Invalid API key"}
+        return {"reachable": False, "ok": False, "error": f"HTTP {e.response.status_code}"}
+    except Exception as e:
+        return {"reachable": False, "ok": False, "error": str(e)}
 
 
 @app.post("/api/instances/{inst_id}/test")

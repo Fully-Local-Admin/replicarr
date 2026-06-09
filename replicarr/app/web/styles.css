@@ -662,3 +662,127 @@ body {
 .mb-4  { margin-bottom: 4px; }
 .mb-8  { margin-bottom: 8px; }
 .mb-12 { margin-bottom: 12px; }
+
+/* ── Wizard steps ──────────────────────────────────────────────────────────── */
+.wizard-steps {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 5px;
+}
+.wstep {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  padding: 2px 0;
+  transition: color 0.15s;
+}
+.wstep.active  { color: var(--accent); }
+.wstep.done    { color: var(--green); }
+.wstep-sep     { font-size: 11px; color: var(--text-3); }
+
+/* ── Storage picker ────────────────────────────────────────────────────────── */
+.storage-picker { display: flex; flex-direction: column; gap: 6px; }
+
+.storage-root {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.storage-root-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  background: var(--surface);
+  transition: background 0.12s;
+  user-select: none;
+}
+.storage-root-header:hover { background: var(--bg); }
+.storage-root-icon {
+  width: 30px; height: 30px;
+  border-radius: 7px;
+  background: var(--accent-lt);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.storage-root-label  { font-weight: 600; font-size: 13px; }
+.storage-root-desc   { font-size: 11px; color: var(--text-2); }
+.storage-root-path   { font-size: 11px; color: var(--text-3); font-family: monospace; margin-left: auto; }
+.storage-root-chevron { color: var(--text-3); flex-shrink: 0; transition: transform 0.15s; }
+.storage-root.open .storage-root-chevron { transform: rotate(90deg); }
+
+.storage-subdirs {
+  display: none;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  padding: 4px 0;
+}
+.storage-root.open .storage-subdirs { display: block; }
+
+.storage-subdir {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 44px;
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+.storage-subdir:hover  { background: var(--accent-lt); color: var(--accent); }
+.storage-subdir.selected { background: var(--accent-lt); color: var(--accent); font-weight: 600; }
+
+.storage-use-root {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px 7px 44px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  font-style: italic;
+  transition: background 0.1s, color 0.1s;
+}
+.storage-use-root:hover { background: var(--accent-lt); color: var(--accent); }
+
+/* ── Confirm summary box ───────────────────────────────────────────────────── */
+.confirm-summary {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+.confirm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 5px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border);
+}
+.confirm-row:last-child { border-bottom: 0; }
+.confirm-key { color: var(--text-2); font-size: 12px; }
+.confirm-val { font-weight: 600; font-family: monospace; font-size: 12px; word-break: break-all; text-align: right; max-width: 280px; }
+
+/* ── Test result ───────────────────────────────────────────────────────────── */
+.test-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 24px 0 16px;
+  text-align: center;
+}
+.test-result-icon {
+  width: 48px; height: 48px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+}
+.test-result-icon.ok   { background: var(--green-lt); }
+.test-result-icon.fail { background: var(--red-lt); }
+.test-result-title { font-weight: 700; font-size: 14px; }
+.test-result-meta  { font-size: 12px; color: var(--text-2); }

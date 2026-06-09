@@ -544,46 +544,133 @@ function renderInstancesTab() {
   }).join("");
 }
 
-// ── Add / Edit instance ───────────────────────────────────────────────────────
-let _editingId = null;
+// ── Instance wizard ───────────────────────────────────────────────────────────
+let _editingId   = null;
+let _wizInstStep = 1;
+let _wizInstTestResult = null;
+
+function _wizInstSetStep(n) {
+  _wizInstStep = n;
+  [1,2,3].forEach(i => {
+    $(`#wiz-inst-s${i}`)?.classList.toggle("hidden", i !== n);
+    const dot = $(`.wstep[data-s="${i}"]`, $("#wiz-inst-steps"));
+    if (dot) {
+      dot.classList.toggle("active", i === n);
+      dot.classList.toggle("done",   i < n);
+    }
+  });
+  $("#wiz-inst-back").style.display = n > 1 ? "" : "none";
+  const nextBtn = $("#wiz-inst-next");
+  if (n === 1) { nextBtn.textContent = "Test Connection →"; nextBtn.disabled = false; }
+  if (n === 2) { nextBtn.textContent = _wizInstTestResult?.ok ? "Next →" : "Retry"; nextBtn.disabled = false; }
+  if (n === 3) { nextBtn.textContent = _editingId ? "Save Changes" : "Add Instance"; nextBtn.disabled = false; }
+}
 
 function openAddInstance() {
   _editingId = null;
+  _wizInstTestResult = null;
   $("#modal-inst-title").textContent = "Add Instance";
   $("#modal-inst-name").value = "";
-  $("#modal-inst-url").value = "";
-  $("#modal-inst-key").value = "";
+  $("#modal-inst-url").value  = "";
+  $("#modal-inst-key").value  = "";
   $("#modal-inst-error").classList.add("hidden");
+  _wizInstSetStep(1);
   $("#modal-inst").classList.remove("hidden");
+  setTimeout(() => $("#modal-inst-name").focus(), 60);
 }
 
 function openEditInstance(id) {
   const inst = instances.find(i => i.id === id);
   if (!inst) return;
   _editingId = id;
+  _wizInstTestResult = null;
   $("#modal-inst-title").textContent = "Edit Instance";
   $("#modal-inst-name").value = inst.name;
   $("#modal-inst-url").value  = inst.url;
   $("#modal-inst-key").value  = "";
   $("#modal-inst-error").classList.add("hidden");
+  _wizInstSetStep(1);
   $("#modal-inst").classList.remove("hidden");
 }
 
-async function saveInstance() {
-  const name = $("#modal-inst-name").value.trim();
-  const url  = $("#modal-inst-url").value.trim();
-  const key  = $("#modal-inst-key").value.trim();
-  if (!name || !url || !key) { showErr("modal-inst-error", "All fields required."); return; }
-  try {
-    if (_editingId) {
-      await api(`api/instances/${_editingId}`, { method: "PUT", body: { name, url, api_key: key } });
-    } else {
-      await api("api/instances", { method: "POST", body: { name, url, api_key: key } });
+async function wizInstNext() {
+  $("#modal-inst-error").classList.add("hidden");
+  if (_wizInstStep === 1) {
+    const name = $("#modal-inst-name").value.trim();
+    const url  = $("#modal-inst-url").value.trim();
+    const key  = $("#modal-inst-key").value.trim();
+    if (!name || !url || !key) { showErr("modal-inst-error", "All fields required."); return; }
+    // Run connection test
+    const btn = $("#wiz-inst-next");
+    btn.disabled = true;
+    btn.textContent = "Testing…";
+    try {
+      // Save temporarily so we can call /test (for edit) or test directly
+      let testId = _editingId;
+      if (!testId) {
+        // Temporarily save to test, then we'll confirm on step 3
+        // Instead call test inline via a temporary approach — just POST to test endpoint
+        // by saving then testing then deleting if user cancels. Simpler: call the Syncthing
+        // status endpoint directly via the backend test helper by temporarily registering.
+        // Easiest: just call test with the current values inline.
+      }
+      const r = await api("api/instances/_wizard_test", {
+        method: "POST",
+        body: { url, api_key: key },
+      });
+      _wizInstTestResult = r;
+    } catch (e) {
+      _wizInstTestResult = { ok: false, error: e.message };
     }
-    closeModal("modal-inst");
-    await loadInstances();
-    await poll();
-  } catch (e) { showErr("modal-inst-error", e.message); }
+    const r = _wizInstTestResult;
+    const isOk = r.reachable && r.myID;
+    $("#wiz-inst-test-result").innerHTML = `
+      <div class="test-result">
+        <div class="test-result-icon ${isOk ? "ok" : "fail"}">${isOk ? "✓" : "✗"}</div>
+        <div class="test-result-title">${isOk ? "Connected successfully" : "Could not connect"}</div>
+        <div class="test-result-meta">${isOk
+          ? `Device ID: <span class="mono">${esc(r.myID)}</span><br>Version: ${esc(r.version || "?")}`
+          : esc(r.error || "Unknown error")}</div>
+      </div>`;
+    _wizInstSetStep(2);
+  } else if (_wizInstStep === 2) {
+    if (!_wizInstTestResult?.reachable || !_wizInstTestResult?.myID) {
+      // Retry — go back to step 1
+      _wizInstSetStep(1);
+      return;
+    }
+    // Show confirm summary
+    const name = $("#modal-inst-name").value.trim();
+    const url  = $("#modal-inst-url").value.trim();
+    const myID = _wizInstTestResult.myID;
+    $("#wiz-inst-summary").innerHTML = `
+      <div class="confirm-summary">
+        <div class="confirm-row"><span class="confirm-key">Name</span><span class="confirm-val">${esc(name)}</span></div>
+        <div class="confirm-row"><span class="confirm-key">URL</span><span class="confirm-val">${esc(url)}</span></div>
+        <div class="confirm-row"><span class="confirm-key">Device ID</span><span class="confirm-val">${esc(myID)}</span></div>
+        <div class="confirm-row"><span class="confirm-key">Version</span><span class="confirm-val">${esc(_wizInstTestResult.version || "?")}</span></div>
+      </div>
+      <div class="alert alert-ok mt-8">Ready to ${_editingId ? "update" : "add"} this instance.</div>`;
+    _wizInstSetStep(3);
+  } else if (_wizInstStep === 3) {
+    const name = $("#modal-inst-name").value.trim();
+    const url  = $("#modal-inst-url").value.trim();
+    const key  = $("#modal-inst-key").value.trim();
+    try {
+      if (_editingId) {
+        await api(`api/instances/${_editingId}`, { method: "PUT", body: { name, url, api_key: key } });
+      } else {
+        await api("api/instances", { method: "POST", body: { name, url, api_key: key } });
+      }
+      closeModal("modal-inst");
+      await loadInstances();
+      await poll();
+    } catch (e) { showErr("modal-inst-error", e.message); }
+  }
+}
+
+function wizInstBack() {
+  _wizInstSetStep(_wizInstStep - 1);
 }
 
 async function testInstance(id) {
@@ -604,34 +691,157 @@ async function deleteInstance(id) {
   } catch (e) { alert(e.message); }
 }
 
-// ── Add folder ────────────────────────────────────────────────────────────────
-let _addFolderInstId = null;
+// ── Add folder wizard ─────────────────────────────────────────────────────────
+let _addFolderInstId  = null;
+let _wizFolderStep    = 1;
+let _storageData      = null;
 
-function openAddFolder(instId) {
+function _wizFolderSetStep(n) {
+  _wizFolderStep = n;
+  [1,2,3].forEach(i => {
+    $(`#wiz-folder-s${i}`)?.classList.toggle("hidden", i !== n);
+    const dot = $(`.wstep[data-s="${i}"]`, $("#wiz-folder-steps"));
+    if (dot) {
+      dot.classList.toggle("active", i === n);
+      dot.classList.toggle("done",   i < n);
+    }
+  });
+  $("#wiz-folder-back").style.display = n > 1 ? "" : "none";
+  const btn = $("#wiz-folder-next");
+  if (n === 1) { btn.textContent = "Choose Location →"; btn.disabled = false; }
+  if (n === 2) { btn.textContent = "Next →";            btn.disabled = false; }
+  if (n === 3) { btn.textContent = "Add Folder";        btn.disabled = false; }
+}
+
+async function openAddFolder(instId) {
   _addFolderInstId = instId;
   const inst = statusData.find(i => i.id === instId);
   $("#modal-folder-inst").textContent = inst?.name || instId;
-  $("#modal-folder-id").value = "";
+  $("#modal-folder-id").value    = "";
   $("#modal-folder-label").value = "";
-  $("#modal-folder-path").value = "";
+  $("#modal-folder-path").value  = "";
   $("#modal-folder-error").classList.add("hidden");
+  _wizFolderSetStep(1);
   $("#modal-folder").classList.remove("hidden");
+  setTimeout(() => $("#modal-folder-id").focus(), 60);
+
+  // Pre-fetch storage in background so step 2 is instant
+  _storageData = null;
+  api("api/storage").then(d => { _storageData = d; }).catch(() => {});
 }
 
-async function saveFolder() {
+async function wizFolderNext() {
+  $("#modal-folder-error").classList.add("hidden");
+  if (_wizFolderStep === 1) {
+    if (!$("#modal-folder-id").value.trim()) {
+      showErr("modal-folder-error", "Folder ID is required.");
+      return;
+    }
+    await _renderStoragePicker();
+    _wizFolderSetStep(2);
+  } else if (_wizFolderStep === 2) {
+    if (!$("#modal-folder-path").value.trim()) {
+      showErr("modal-folder-error", "Select or enter a path.");
+      return;
+    }
+    _renderFolderConfirm();
+    _wizFolderSetStep(3);
+  } else if (_wizFolderStep === 3) {
+    const folder_id = $("#modal-folder-id").value.trim();
+    const label     = $("#modal-folder-label").value.trim();
+    const path      = $("#modal-folder-path").value.trim();
+    try {
+      const r = await api(`api/instances/${_addFolderInstId}/folders`, {
+        method: "POST",
+        body: { folder_id, label: label || folder_id, path },
+      });
+      closeModal("modal-folder");
+      if (r?.restartRequired) alert("Syncthing requires a restart to apply changes.");
+      await poll();
+    } catch (e) { showErr("modal-folder-error", e.message); }
+  }
+}
+
+function wizFolderBack() {
+  _wizFolderSetStep(_wizFolderStep - 1);
+}
+
+async function _renderStoragePicker() {
+  const el = $("#storage-picker");
+  if (!_storageData) {
+    el.innerHTML = '<div class="loading-row">Loading…</div>';
+    try { _storageData = await api("api/storage"); } catch(e) {
+      el.innerHTML = `<div class="alert alert-error">Could not load storage: ${esc(e.message)}</div>`;
+      return;
+    }
+  }
+  if (!_storageData.length) {
+    el.innerHTML = '<div class="alert alert-info">No mounted shares detected. Enter a path manually below.</div>';
+    return;
+  }
+
+  const folderId = $("#modal-folder-id").value.trim();
+
+  el.innerHTML = _storageData.map(s => `
+    <div class="storage-root" id="sr-${esc(s.path.replace(/\//g,'-'))}">
+      <div class="storage-root-header" onclick="toggleStorageRoot(this)">
+        <div class="storage-root-icon">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+        </div>
+        <div style="flex:1;min-width:0">
+          <div class="storage-root-label">${esc(s.label)}</div>
+          <div class="storage-root-desc">${esc(s.description)}</div>
+        </div>
+        <span class="storage-root-path">${esc(s.path)}</span>
+        <svg class="storage-root-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+      </div>
+      <div class="storage-subdirs">
+        <div class="storage-use-root" onclick="pickPath('${esc(s.path)}')">
+          Use root: <span class="mono">${esc(s.path)}</span>
+        </div>
+        ${s.subdirs.map(d => `
+          <div class="storage-subdir" onclick="pickPath('${esc(d)}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            ${esc(d)}
+          </div>`).join("")}
+        ${folderId ? `
+          <div class="storage-subdir" onclick="pickPath('${esc(s.path)}/${esc(folderId)}')">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Create: <span class="mono">${esc(s.path)}/${esc(folderId)}</span>
+          </div>` : ""}
+      </div>
+    </div>`).join("");
+}
+
+function toggleStorageRoot(header) {
+  header.closest(".storage-root").classList.toggle("open");
+}
+
+function pickPath(path) {
+  $("#modal-folder-path").value = path;
+  // Highlight selected
+  $$(".storage-subdir, .storage-use-root").forEach(el => el.classList.remove("selected"));
+  // Find and mark selected
+  $$(".storage-subdir, .storage-use-root").forEach(el => {
+    if (el.getAttribute("onclick")?.includes(`'${path}'`)) el.classList.add("selected");
+  });
+}
+
+function _renderFolderConfirm() {
   const folder_id = $("#modal-folder-id").value.trim();
-  const label     = $("#modal-folder-label").value.trim();
+  const label     = $("#modal-folder-label").value.trim() || folder_id;
   const path      = $("#modal-folder-path").value.trim();
-  if (!folder_id || !path) { showErr("modal-folder-error", "Folder ID and path are required."); return; }
-  try {
-    const r = await api(`api/instances/${_addFolderInstId}/folders`, {
-      method: "POST",
-      body: { folder_id, label: label || folder_id, path },
-    });
-    closeModal("modal-folder");
-    if (r?.restartRequired) alert("Syncthing requires a restart to apply changes.");
-    await poll();
-  } catch (e) { showErr("modal-folder-error", e.message); }
+  const instName  = statusData.find(i => i.id === _addFolderInstId)?.name || _addFolderInstId;
+  $("#wiz-folder-summary").innerHTML = `
+    <div class="confirm-summary">
+      <div class="confirm-row"><span class="confirm-key">Instance</span><span class="confirm-val">${esc(instName)}</span></div>
+      <div class="confirm-row"><span class="confirm-key">Folder ID</span><span class="confirm-val">${esc(folder_id)}</span></div>
+      <div class="confirm-row"><span class="confirm-key">Label</span><span class="confirm-val">${esc(label)}</span></div>
+      <div class="confirm-row"><span class="confirm-key">Path</span><span class="confirm-val">${esc(path)}</span></div>
+    </div>
+    <div class="alert alert-info mt-8">
+      Syncthing will create this folder at the path above. Make sure the path is writable inside the container.
+    </div>`;
 }
 
 // ── Push ──────────────────────────────────────────────────────────────────────
@@ -733,8 +943,9 @@ Object.assign(window, {
   toggleTheme, applyFilter,
   switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
   actFolder, actFolderDetail, actDevice,
-  openAddInstance, openEditInstance, saveInstance, deleteInstance, testInstance,
-  openAddFolder, saveFolder,
+  openAddInstance, openEditInstance, wizInstNext, wizInstBack,
+  deleteInstance, testInstance,
+  openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,
   openPushModal, executePush,
   closeModal, poll,
 });

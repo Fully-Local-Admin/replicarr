@@ -194,67 +194,117 @@
   </div><!-- /main -->
 </div><!-- /app -->
 
-<!-- ── Add/Edit Instance modal ───────────────────────────────────────────────── -->
+<!-- ── Instance wizard (Add / Edit) ──────────────────────────────────────────── -->
 <div id="modal-inst" class="modal-overlay hidden">
-  <div class="modal">
+  <div class="modal" style="width:500px">
     <div class="modal-header">
-      <span class="modal-title" id="modal-inst-title">Add Instance</span>
+      <div>
+        <span class="modal-title" id="modal-inst-title">Add Instance</span>
+        <div class="wizard-steps" id="wiz-inst-steps">
+          <span class="wstep active" data-s="1">1 · Connection</span>
+          <span class="wstep-sep">›</span>
+          <span class="wstep" data-s="2">2 · Verify</span>
+          <span class="wstep-sep">›</span>
+          <span class="wstep" data-s="3">3 · Confirm</span>
+        </div>
+      </div>
       <button class="btn-icon" onclick="closeModal('modal-inst')">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
     <div class="modal-body">
       <div id="modal-inst-error" class="alert alert-error hidden"></div>
-      <div class="field">
-        <label>Name</label>
-        <input id="modal-inst-name" type="text" placeholder="Local Syncthing" />
+
+      <!-- Step 1: connection details -->
+      <div id="wiz-inst-s1">
+        <div class="field">
+          <label>Name</label>
+          <input id="modal-inst-name" type="text" placeholder="Local Syncthing" autocomplete="off" />
+        </div>
+        <div class="field">
+          <label>URL</label>
+          <input id="modal-inst-url" type="url" placeholder="http://a0d7b954-syncthing:8384" autocomplete="off" />
+          <div class="field-hint">Base URL of the Syncthing REST API. Stored server-side — never sent to the browser.</div>
+        </div>
+        <div class="field">
+          <label>API Key</label>
+          <input id="modal-inst-key" type="password" placeholder="Syncthing GUI → Settings → API Key" autocomplete="off" />
+        </div>
       </div>
-      <div class="field">
-        <label>URL</label>
-        <input id="modal-inst-url" type="url" placeholder="http://syncthing:8384" />
-        <div class="field-hint">Base URL of the Syncthing REST API. Stored server-side only.</div>
+
+      <!-- Step 2: test result -->
+      <div id="wiz-inst-s2" class="hidden">
+        <div id="wiz-inst-test-result"></div>
       </div>
-      <div class="field">
-        <label>API Key</label>
-        <input id="modal-inst-key" type="password" placeholder="Syncthing GUI API Key" />
-        <div class="field-hint">Settings → GUI → API Key. Never sent to the browser.</div>
+
+      <!-- Step 3: confirm summary -->
+      <div id="wiz-inst-s3" class="hidden">
+        <div id="wiz-inst-summary"></div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-inst')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveInstance()">Save</button>
+      <button class="btn btn-ghost" id="wiz-inst-back" onclick="wizInstBack()" style="display:none">← Back</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-inst')" style="margin-right:auto">Cancel</button>
+      <button class="btn btn-primary" id="wiz-inst-next" onclick="wizInstNext()">Test Connection →</button>
     </div>
   </div>
 </div>
 
-<!-- ── Add Folder modal ──────────────────────────────────────────────────────── -->
+<!-- ── Add Folder wizard ───────────────────────────────────────────────────────── -->
 <div id="modal-folder" class="modal-overlay hidden">
-  <div class="modal">
+  <div class="modal" style="width:500px">
     <div class="modal-header">
-      <span class="modal-title">Add Folder — <span id="modal-folder-inst" class="text-2"></span></span>
+      <div>
+        <span class="modal-title">Add Folder — <span id="modal-folder-inst" class="text-2"></span></span>
+        <div class="wizard-steps" id="wiz-folder-steps">
+          <span class="wstep active" data-s="1">1 · Details</span>
+          <span class="wstep-sep">›</span>
+          <span class="wstep" data-s="2">2 · Location</span>
+          <span class="wstep-sep">›</span>
+          <span class="wstep" data-s="3">3 · Confirm</span>
+        </div>
+      </div>
       <button class="btn-icon" onclick="closeModal('modal-folder')">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
     <div class="modal-body">
       <div id="modal-folder-error" class="alert alert-error hidden"></div>
-      <div class="field">
-        <label>Folder ID</label>
-        <input id="modal-folder-id" type="text" placeholder="my-docs" />
-        <div class="field-hint">Must match exactly across all sharing instances.</div>
+
+      <!-- Step 1: folder details -->
+      <div id="wiz-folder-s1">
+        <div class="field">
+          <label>Folder ID</label>
+          <input id="modal-folder-id" type="text" placeholder="my-docs" autocomplete="off" />
+          <div class="field-hint">Must match exactly across all sharing instances.</div>
+        </div>
+        <div class="field">
+          <label>Label <span class="text-3">(optional)</span></label>
+          <input id="modal-folder-label" type="text" placeholder="My Documents" />
+        </div>
       </div>
-      <div class="field">
-        <label>Label <span class="text-3">(optional)</span></label>
-        <input id="modal-folder-label" type="text" placeholder="My Documents" />
+
+      <!-- Step 2: storage location picker -->
+      <div id="wiz-folder-s2" class="hidden">
+        <div class="storage-picker" id="storage-picker">
+          <div class="loading-row">Loading available storage…</div>
+        </div>
+        <div class="field mt-12">
+          <label>Path <span class="text-3">(edit or type directly)</span></label>
+          <input id="modal-folder-path" type="text" placeholder="/data/syncthing/my-docs" />
+          <div class="field-hint">Where Syncthing will store the synced files on this instance.</div>
+        </div>
       </div>
-      <div class="field">
-        <label>Path on this instance</label>
-        <input id="modal-folder-path" type="text" placeholder="/data/syncthing/my-docs" />
+
+      <!-- Step 3: confirm -->
+      <div id="wiz-folder-s3" class="hidden">
+        <div id="wiz-folder-summary"></div>
       </div>
     </div>
     <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-folder')">Cancel</button>
-      <button class="btn btn-primary" onclick="saveFolder()">Add Folder</button>
+      <button class="btn btn-ghost" id="wiz-folder-back" onclick="wizFolderBack()" style="display:none">← Back</button>
+      <button class="btn btn-ghost" onclick="closeModal('modal-folder')" style="margin-right:auto">Cancel</button>
+      <button class="btn btn-primary" id="wiz-folder-next" onclick="wizFolderNext()">Next →</button>
     </div>
   </div>
 </div>
