@@ -18,6 +18,14 @@ profile replicarr flags=(attach_disconnected,mediate_deleted) {
   /data/ r,
   /data/** rw,
 
+  # Capabilities required by s6-overlay-suexec (privilege drop)
+  capability setuid,
+  capability setgid,
+  capability dac_override,
+  capability dac_read_search,
+  capability chown,
+  capability fowner,
+
   # s6-overlay v3 init and commands
   /init rix,
   /command/ r,
@@ -26,8 +34,16 @@ profile replicarr flags=(attach_disconnected,mediate_deleted) {
   /package/** rix,
   /etc/s6-overlay/ r,
   /etc/s6-overlay/** r,
-  /run/s6/** rw,
-  /var/run/s6/** rw,
+
+  # /run — parent dir needs rw so s6 can mkdir /run/s6 and /run/service
+  /run/ rw,
+  /run/** rw,
+  /var/run/ rw,
+  /var/run/** rw,
+
+  # proc — s6 reads /proc/self during suexec
+  @{PROC}/self/** r,
+  @{PROC}/@{pid}/** r,
 
   # bashio / contenv
   /usr/bin/with-contenv rix,
@@ -42,6 +58,8 @@ profile replicarr flags=(attach_disconnected,mediate_deleted) {
   /usr/bin/env rix,
   /usr/bin/** rix,
   /bin/** rix,
+  /sbin/** rix,
+  /usr/sbin/** rix,
 
   # Temp files (bashio writes config here)
   /tmp/ rw,
