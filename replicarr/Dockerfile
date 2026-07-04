@@ -12,4 +12,5 @@ COPY app/ ./
 # COPY rootfs without trailing slash — copies contents into /
 COPY rootfs /
 
-RUN find /etc/s6-overlay/s6-rc.d -name "run" -exec chmod a+x {} \;
+RUN find /etc/s6-overlay -type f -name "run" -exec chmod a+x {} \; \
+    && chmod a+x /init
