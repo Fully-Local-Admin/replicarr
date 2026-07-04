@@ -12,7 +12,7 @@ ingress: true
 ingress_port: 8099
 panel_icon: mdi:sync
 panel_title: Replicarr
-apparmor: true
+apparmor: false
 options:
   log_level: info
   instances: []

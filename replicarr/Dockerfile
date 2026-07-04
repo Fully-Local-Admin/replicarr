@@ -13,4 +13,6 @@ COPY app/ ./
 COPY rootfs /
 
 RUN find /etc/s6-overlay -type f -name "run" -exec chmod a+x {} \; \
-    && chmod a+x /init
+    && chmod a+x /init \
+    && mkdir -p /run/s6 /run/service \
+    && chmod 755 /run/s6 /run/service
