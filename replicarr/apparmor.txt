@@ -18,11 +18,30 @@ profile replicarr flags=(attach_disconnected,mediate_deleted) {
   /data/ r,
   /data/** rw,
 
-  # s6 / bashio
+  # s6-overlay v3 init and commands
+  /init rix,
+  /command/ r,
+  /command/** rix,
+  /package/ r,
+  /package/** rix,
+  /etc/s6-overlay/ r,
+  /etc/s6-overlay/** r,
+  /run/s6/** rw,
+  /var/run/s6/** rw,
+
+  # bashio / contenv
   /usr/bin/with-contenv rix,
   /usr/bin/bashio rix,
   /usr/bin/s6* rix,
-  /run/s6/** rw,
+  /usr/lib/bashio/ r,
+  /usr/lib/bashio/** r,
+
+  # Shell and basic utilities needed by run scripts
+  /bin/bash rix,
+  /bin/sh rix,
+  /usr/bin/env rix,
+  /usr/bin/** rix,
+  /bin/** rix,
 
   # Temp files (bashio writes config here)
   /tmp/ rw,
