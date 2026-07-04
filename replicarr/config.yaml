@@ -1,5 +1,5 @@
 name: Replicarr
-version: "0.1.0"
+version: "0.1.1"
 slug: replicarr
 description: A dashboard to manage and sync multiple Syncthing instances from one place.
 url: https://github.com/Fully-Local-Admin/replicarr
