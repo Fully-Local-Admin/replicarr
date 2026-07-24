@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.5] - 2026-07-24
+
+### Fixed
+- Reverted `apparmor: true` back to `false`. The 0.3.4 fix targets the
+  actual shutdown mechanism (a bounded s6 stop deadline plus properly
+  reaping the sampler task); AppArmor was never confirmed to be a
+  contributing cause of the restart hangs, and re-enabling it carries its
+  own separate risk of the `/run/s6/basedir` permission-denied boot loop
+  seen in 0.2.0. Turned off out of caution while 0.3.4's fix is verified
+  on its own.
+
 ## [0.3.4] - 2026-07-24
 
 ### Fixed
