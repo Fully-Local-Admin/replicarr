@@ -376,7 +376,7 @@ function renderInstanceDetail(inst) {
 
     <div class="detail-tab-panel" id="dt-devices">
       ${devices.length ? devices.map(d => `
-        <div class="detail-folder-row" data-device-id="${esc(d.deviceID)}">
+        <div class="detail-folder-row" data-device-id="${esc(d.deviceID)}" data-device-name="${esc(d.name)}" data-device-address="${esc(d.address)}">
           <div class="detail-folder-icon" style="background:${d.connected ? "var(--green-lt)" : "var(--border)"}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${d.connected ? "var(--green)" : "var(--text-3)"}" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
           </div>
@@ -386,6 +386,9 @@ function renderInstanceDetail(inst) {
             ${d.address ? `<div class="text-xs text-2 mono">Address: ${esc(d.address)}</div>` : ""}
           </div>
           <div class="flex gap-6">
+            ${d.address && !isManagedSyncthingDevice(d.deviceID)
+              ? `<button class="btn btn-primary btn-sm" onclick="openAddDiscoveredDevice(this.closest('[data-device-id]').dataset.deviceName,this.closest('[data-device-id]').dataset.deviceAddress)">Add to Replicarr</button>`
+              : ""}
             ${d.paused
               ? `<button class="btn btn-ghost btn-sm" onclick="actDevice('${esc(inst.id)}',this.closest('[data-device-id]').dataset.deviceId,'resume')">Resume</button>`
               : `<button class="btn btn-ghost btn-sm" onclick="actDevice('${esc(inst.id)}',this.closest('[data-device-id]').dataset.deviceId,'pause')" title="Pauses all sync with this peer">Pause</button>`}
@@ -714,6 +717,20 @@ let _editingId   = null;
 let _wizInstStep = 1;
 let _wizInstTestResult = null;
 
+function isManagedSyncthingDevice(deviceId) {
+  return statusData.some(inst => inst.myID === deviceId);
+}
+
+function discoveredDeviceApiUrl(address) {
+  try {
+    const parsed = new URL(address.includes("://") ? address : `tcp://${address}`);
+    if (!["tcp:", "quic:"].includes(parsed.protocol) || !parsed.hostname) return "";
+    return `http://${parsed.hostname}:8384`;
+  } catch {
+    return "";
+  }
+}
+
 function _wizInstSetStep(n) {
   _wizInstStep = n;
   [1,2,3].forEach(i => {
@@ -731,17 +748,25 @@ function _wizInstSetStep(n) {
   if (n === 3) { nextBtn.textContent = _editingId ? "Save Changes" : "Add Instance"; nextBtn.disabled = false; }
 }
 
-function openAddInstance() {
+function openAddInstance(prefill = {}) {
   _editingId = null;
   _wizInstTestResult = null;
-  $("#modal-inst-title").textContent = "Add Instance";
-  $("#modal-inst-name").value = "";
-  $("#modal-inst-url").value  = "";
+  $("#modal-inst-title").textContent = prefill.discovered ? "Add Discovered Device" : "Add Instance";
+  $("#modal-inst-name").value = prefill.name || "";
+  $("#modal-inst-url").value  = prefill.url || "";
   $("#modal-inst-key").value  = "";
   $("#modal-inst-error").classList.add("hidden");
   _wizInstSetStep(1);
   $("#modal-inst").classList.remove("hidden");
   setTimeout(() => $("#modal-inst-name").focus(), 60);
+}
+
+function openAddDiscoveredDevice(name, address) {
+  openAddInstance({
+    discovered: true,
+    name,
+    url: discoveredDeviceApiUrl(address),
+  });
 }
 
 function openEditInstance(id) {
@@ -1165,6 +1190,7 @@ Object.assign(window, {
   switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
   actFolder, actFolderDetail, actDevice, removeFolder, removeDevice,
   openAddInstance, openEditInstance, wizInstNext, wizInstBack,
+  openAddDiscoveredDevice,
   deleteInstance, testInstance,
   openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,
   toggleSubfolderRow, openPushModal, executePush,

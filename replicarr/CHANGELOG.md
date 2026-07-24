@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.7] - 2026-07-24
+
+### Added
+- Connected devices that are not already managed by Replicarr now offer an
+  **Add to Replicarr** action. It opens the existing instance wizard with the
+  device name and a suggested `http://<peer-address>:8384` API URL prefilled;
+  both remain editable, and the user supplies the remote instance's API key
+  before Replicarr tests and saves it.
+
 ## [0.3.6] - 2026-07-24
 
 ### Added
