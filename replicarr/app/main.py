@@ -56,6 +56,15 @@ _transfers_cache: dict[str, Any] = {
 }
 _subfolder_transfers_cache: list[dict[str, Any]] = []
 _sampler_task: asyncio.Task | None = None
+# Set on app shutdown so long-lived /api/stream connections exit their loop
+# immediately instead of holding the process open — see lifespan() and
+# stream() below. Without this, a browser tab left open indefinitely keeps
+# an SSE request in flight, and uvicorn's graceful shutdown waits for it to
+# close on its own, which it never does — the process then hangs on
+# restart until something force-kills it, which can leave s6's supervision
+# tree in a bad state for the next start ("another instance of s6-svscan
+# is already running").
+_shutdown_event = asyncio.Event()
 REFRESH_INTERVAL_SECONDS = 2
 
 # { instance_id: { "ts": float, "inBytes": int, "outBytes": int } }
@@ -309,6 +318,7 @@ async def _sample_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _sampler_task
+    _shutdown_event.clear()
     # Merge config instances on startup
     cfg_path = Path("/tmp/config_instances.json")
     config_instances: list[dict] = []
@@ -325,6 +335,7 @@ async def lifespan(app: FastAPI):
     await _refresh_all()  # populate the cache before serving the first request
     _sampler_task = asyncio.create_task(_sample_loop())
     yield
+    _shutdown_event.set()
     _sampler_task.cancel()
 
 
@@ -567,7 +578,7 @@ async def stream(request: Request):
     """
     async def event_generator():
         last_payload = None
-        while True:
+        while not _shutdown_event.is_set():
             if await request.is_disconnected():
                 break
             payload = json.dumps({
@@ -580,7 +591,14 @@ async def stream(request: Request):
                 last_payload = payload
             else:
                 yield ": keep-alive\n\n"
-            await asyncio.sleep(REFRESH_INTERVAL_SECONDS)
+            # Waiting on the shutdown event (instead of a plain sleep) means
+            # a connection sitting idle wakes up and exits immediately when
+            # the app shuts down, rather than up to REFRESH_INTERVAL_SECONDS
+            # late — the whole point of _shutdown_event existing.
+            try:
+                await asyncio.wait_for(_shutdown_event.wait(), timeout=REFRESH_INTERVAL_SECONDS)
+            except asyncio.TimeoutError:
+                pass
 
     return StreamingResponse(
         event_generator(),

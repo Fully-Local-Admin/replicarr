@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -65,3 +66,42 @@ def test_selective_sync_ignores_idempotent():
     once = main._selective_sync_ignores([], "TV Shows/Paradise")
     twice = main._selective_sync_ignores(once, "TV Shows/Paradise")
     assert once == twice
+
+
+def test_shutdown_wait_pattern_interrupts_immediately_instead_of_sleeping_full_interval():
+    """
+    Regression test for a hung-shutdown bug: /api/stream's loop used to
+    `await asyncio.sleep(REFRESH_INTERVAL_SECONDS)` unconditionally, so an
+    open SSE connection kept the process alive through a graceful shutdown
+    indefinitely (uvicorn waits for in-flight connections to close on their
+    own, which an infinite generator never does by itself). The fix waits
+    on a shutdown Event instead of sleeping blindly, via the same
+    `asyncio.wait_for(event.wait(), timeout=REFRESH_INTERVAL_SECONDS)`
+    pattern main.py's stream() uses.
+
+    This exercises that exact pattern with a fresh, locally-scoped Event
+    rather than the real module-level `main._shutdown_event` — asyncio.Event
+    objects predating Python 3.10 bind to whichever loop is running at
+    construction time, and the real one is created at module-import time,
+    outside of this test's own asyncio.run() loop. Using a local Event
+    keeps the test meaningful on any Python version without depending on
+    global async state or cross-test ordering.
+    """
+    async def scenario():
+        event = asyncio.Event()
+
+        async def set_it_shortly():
+            await asyncio.sleep(0.05)
+            event.set()
+
+        setter = asyncio.create_task(set_it_shortly())
+        start = asyncio.get_event_loop().time()
+        try:
+            await asyncio.wait_for(event.wait(), timeout=main.REFRESH_INTERVAL_SECONDS)
+        except asyncio.TimeoutError:
+            pass
+        await setter
+        return asyncio.get_event_loop().time() - start
+
+    elapsed = asyncio.run(scenario())
+    assert elapsed < 1.0, "shutdown wait should return almost immediately, not wait out the full interval"

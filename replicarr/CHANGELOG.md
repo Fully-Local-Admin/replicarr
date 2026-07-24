@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.1] - 2026-07-24
+
+### Fixed
+- Fixed a hung-shutdown bug introduced by 0.3.0's `/api/stream` SSE
+  endpoint: an open browser tab keeps that connection alive forever, and
+  uvicorn's graceful shutdown waited for it to close on its own, which it
+  never did on its own. Confirmed live: the log showed "Waiting for
+  connections to close" followed by continued activity, and the next start
+  failed with `s6-svscan: fatal: another instance ... already running` —
+  consistent with the previous process being force-killed mid-shutdown and
+  leaving s6's supervision state behind.
+  The stream loop now waits on a shutdown event (with the same interval as
+  before) instead of sleeping unconditionally, so it exits within
+  milliseconds of a shutdown starting instead of hanging indefinitely.
+  Also added `--timeout-graceful-shutdown 5` to the uvicorn invocation as a
+  safety net against any other long-lived connection having the same
+  problem in the future.
+
 ## [0.3.0] - 2026-07-24
 
 ### Added
