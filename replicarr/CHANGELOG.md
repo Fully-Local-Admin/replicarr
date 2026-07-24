@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.6] - 2026-07-24
+
+### Added
+- Show each connected device's live Syncthing address in the Devices tab of
+  the instance detail panel.
+- Added a Replicarr favicon.
+
+### Fixed
+- Preserve the subfolder browser's expanded rows and scroll position during
+  periodic status polling instead of rebuilding the tree every three seconds.
+
 ## [0.3.5] - 2026-07-24
 
 ### Fixed
