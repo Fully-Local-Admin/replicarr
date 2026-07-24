@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.3.4] - 2026-07-24
+
+### Fixed
+- Added a 7-second s6 service stop deadline so an HTTP request stuck in
+  Uvicorn's "Waiting for connections to close" phase cannot outlive Home
+  Assistant's container shutdown window. Uvicorn still gets its existing
+  5-second graceful-shutdown period first; if it fails to exit, s6 now
+  terminates the service while the supervisor is still in control, avoiding
+  the stale supervision state that caused the next start to loop on
+  `s6-svscan: fatal: another instance ... already running`.
+- The background Syncthing sampler is now both cancelled and awaited during a
+  normal FastAPI lifespan shutdown, ensuring its in-flight task is fully
+  reaped before the application exits.
+
 ## [0.3.3] - 2026-07-24
 
 ### Removed

@@ -14,7 +14,7 @@ import logging
 import os
 import secrets
 import time
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
 
@@ -338,6 +338,8 @@ async def lifespan(app: FastAPI):
     _sampler_task = asyncio.create_task(_sample_loop())
     yield
     _sampler_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await _sampler_task
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
