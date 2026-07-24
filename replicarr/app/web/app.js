@@ -336,6 +336,7 @@ function updateDetailPanel(type, instId, folderId) {
 
 function renderInstanceDetail(inst) {
   const body = $("#detail-body");
+  delete body.dataset.folderKey; // invalidate renderFolderDetail's same-folder check
   const online = inst.online;
 
   const folders = inst.folders || [];
@@ -398,13 +399,39 @@ function renderFolderDetail(inst, folderId) {
   const folder = (inst.folders || []).find(f => f.id === folderId);
   if (!folder) return;
   const body = $("#detail-body");
-  const pct  = folder.completion ?? 100;
+  const key = `${inst.id}:${folderId}`;
+
+  // Only rebuild the chrome (and the Subfolders tree inside it) when the
+  // selected folder actually changes. This runs again every ~3s on poll —
+  // rebuilding the tree every time collapsed it back to "Loading…" and
+  // repopulated it, which reset scroll position and any expanded rows.
+  // renderFolderDetailLive() below still refreshes progress/status/buttons
+  // every poll; only the tree itself is left alone.
+  if (body.dataset.folderKey !== key) {
+    body.dataset.folderKey = key;
+    body.innerHTML = `
+      <div class="detail-title">${esc(folder.label || folder.id)}</div>
+      <div class="detail-meta">${fmtBytes(folder.globalBytes)} · on ${esc(inst.name)}</div>
+
+      <div id="folder-detail-live"></div>
+
+      <div class="detail-section mt-12">
+        <div class="detail-section-title">Subfolders</div>
+        <div class="text-xs text-2 mb-8">Push individual subfolders to another instance — the whole folder is never pushed as one unit.</div>
+        <div class="subfolder-browser" id="subfolder-browser"></div>
+      </div>
+    `;
+    renderSubfolderBrowser(inst.id, folder.id, $("#subfolder-browser"), "");
+  }
+
+  renderFolderDetailLive(inst, folder);
+}
+
+function renderFolderDetailLive(inst, folder) {
+  const pct = folder.completion ?? 100;
   const fillCls = pct >= 100 ? "complete" : "";
 
-  body.innerHTML = `
-    <div class="detail-title">${esc(folder.label || folder.id)}</div>
-    <div class="detail-meta">${fmtBytes(folder.globalBytes)} · on ${esc(inst.name)}</div>
-
+  $("#folder-detail-live").innerHTML = `
     <div class="mt-12 mb-8">
       ${chip(folder.state, folder.paused)}
     </div>
@@ -433,14 +460,7 @@ function renderFolderDetail(inst, folderId) {
         : `<button class="btn btn-ghost btn-sm" onclick="actFolderDetail('pause','${esc(inst.id)}',this.parentElement.dataset.folderId)" title="Pauses the entire folder — not a single file">Pause</button>`}
       <button class="btn btn-danger btn-sm" title="Remove folder from Syncthing" onclick="removeFolder(null,'${esc(inst.id)}',this.parentElement.dataset.folderId)">Remove</button>
     </div>
-
-    <div class="detail-section mt-12">
-      <div class="detail-section-title">Subfolders</div>
-      <div class="text-xs text-2 mb-8">Push individual subfolders to another instance — the whole folder is never pushed as one unit.</div>
-      <div class="subfolder-browser" id="subfolder-browser"></div>
-    </div>
   `;
-  renderSubfolderBrowser(inst.id, folder.id, $("#subfolder-browser"), "");
 }
 
 async function actFolderDetail(action, instId, folderId) {
