@@ -20,7 +20,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -42,10 +42,22 @@ BASIC_AUTH_PASSWORD = os.environ.get("BASIC_AUTH_PASSWORD", "")
 
 # ── Shared status/transfers cache ───────────────────────────────────────────────
 # A single background refresh cycle owns all outbound Syncthing REST calls.
-# /api/status, /api/transfers, and /api/stream all read from these caches
-# instead of independently re-fetching from every instance on every request —
-# previously each browser tab polling every 3s multiplied the load on every
-# configured Syncthing instance on top of this same sampler's own cycle.
+# /api/status, /api/transfers, and /api/subfolder-transfers all read from
+# these caches instead of independently re-fetching from every instance on
+# every request — each browser tab polling separately would otherwise
+# multiply the load on every configured Syncthing instance on top of this
+# same sampler's own cycle.
+#
+# An SSE endpoint (/api/stream) briefly replaced polling here, pushing these
+# caches to the frontend instead of it polling on a timer. It was removed
+# after repeatedly causing the add-on to hang on shutdown/restart: a
+# long-lived streaming connection is something uvicorn's graceful shutdown
+# can end up waiting on indefinitely, and two different fixes attempted for
+# that (waiting on a shutdown event; bounding the stream's own lifetime)
+# both failed when actually tested live, even though each checked out in
+# local testing first. Do not reintroduce a long-lived HTTP connection here
+# without a way to verify the fix against a real restart, not just a
+# simulated one — see CHANGELOG 0.3.0-0.3.3.
 _status_cache: list[dict[str, Any]] = []
 _transfers_cache: dict[str, Any] = {
     "instances": [],
@@ -556,52 +568,6 @@ async def get_transfers():
 @app.get("/api/subfolder-transfers")
 async def get_subfolder_transfers():
     return _subfolder_transfers_cache
-
-
-# ── Live updates ────────────────────────────────────────────────────────────────
-# uvicorn only delivers the ASGI lifespan "shutdown" event after all in-flight
-# connections have closed on their own — so a signal set from that lifespan
-# handler (like _shutdown_event) can never reach an SSE loop that is only
-# waiting to be told to close: neither side moves first. Confirmed live (see
-# CHANGELOG 0.3.1/0.3.2): the "waiting on _shutdown_event" fix from 0.3.1
-# didn't help, and the process hung until Docker's ~10s SIGKILL grace period
-# forcibly killed it, corrupting s6's supervision state for the next boot.
-# Instead of relying on being told to stop, the stream now bounds its own
-# lifetime and ends normally well within that window — EventSource
-# reconnects automatically, and once shutdown begins uvicorn stops accepting
-# new connections, so the cycled-out connection is simply never replaced.
-STREAM_MAX_LIFETIME_SECONDS = 8
-
-
-@app.get("/api/stream")
-async def stream(request: Request):
-    """
-    Server-Sent Events feed of the same data as /api/status + /api/transfers,
-    pushed on every refresh cycle so the frontend doesn't need to poll.
-    """
-    async def event_generator():
-        last_payload = None
-        started = time.monotonic()
-        while time.monotonic() - started < STREAM_MAX_LIFETIME_SECONDS:
-            if await request.is_disconnected():
-                break
-            payload = json.dumps({
-                "status": _status_cache,
-                "transfers": _transfers_cache,
-                "subfolderTransfers": _subfolder_transfers_cache,
-            })
-            if payload != last_payload:
-                yield f"data: {payload}\n\n"
-                last_payload = payload
-            else:
-                yield ": keep-alive\n\n"
-            await asyncio.sleep(REFRESH_INTERVAL_SECONDS)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
 
 
 # ── Pause / resume folder ─────────────────────────────────────────────────────

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.3.3] - 2026-07-24
+
+### Removed
+- Removed the `/api/stream` SSE endpoint entirely. It caused the exact same
+  shutdown hang / `s6-svscan: fatal: another instance ... already running`
+  failure on **three** separate live tests, across two different attempted
+  fixes (0.3.1's shutdown-event wait, 0.3.2's self-bounded 8s lifetime) that
+  each checked out fine in local/simulated testing but failed against the
+  real add-on. Rather than attempt a fourth theory about uvicorn's shutdown
+  internals without a way to verify it live, the long-lived connection is
+  gone. The frontend polls `/api/status`, `/api/transfers`, and
+  `/api/subfolder-transfers` on a 3-second timer instead — the same
+  approach used before 0.3.0, which never had this failure mode, since a
+  plain request/response cycle completes in milliseconds and leaves
+  nothing for a graceful shutdown to wait on.
+
 ## [0.3.2] - 2026-07-24
 
 ### Fixed

@@ -67,20 +67,16 @@ def test_selective_sync_ignores_idempotent():
     assert once == twice
 
 
-def test_stream_max_lifetime_is_comfortably_under_a_typical_kill_grace_period():
+def test_no_long_lived_streaming_endpoint_exists():
     """
-    Regression guard for a hung-shutdown bug: an open /api/stream connection
-    never completes on its own, and uvicorn only delivers the ASGI lifespan
-    "shutdown" event *after* in-flight connections close — so a signal set
-    from that lifespan handler can never reach the stream loop; neither side
-    moves first. Confirmed live twice: the process hung until Docker's
-    default ~10s SIGKILL grace period force-killed it, corrupting s6's
-    supervision state for the next boot (see CHANGELOG 0.3.1 and 0.3.2).
-
-    The fix bounds the stream's own lifetime instead of waiting to be told
-    to stop — EventSource reconnects automatically, and once shutdown begins
-    uvicorn refuses new connections, so nothing replaces the one that ends.
-    This just guards the constant itself: it must stay well under a typical
-    container stop grace period, or the whole point of self-bounding is lost.
+    Regression guard: /api/stream (an SSE feed) repeatedly caused the add-on
+    to hang on shutdown/restart, confirmed live three times across three
+    different attempted fixes (see CHANGELOG 0.3.0-0.3.3) — a long-lived
+    connection is something uvicorn's graceful shutdown can end up waiting
+    on indefinitely, in ways that were not reproducible in local testing.
+    It was removed in favor of plain polling. This just guards against it
+    (or something like it) being reintroduced without a way to actually
+    verify a fix against a real restart, not just a simulated one.
     """
-    assert 0 < main.STREAM_MAX_LIFETIME_SECONDS <= 8
+    stream_routes = [r for r in main.app.routes if getattr(r, "path", "") == "/api/stream"]
+    assert not stream_routes, "a long-lived /api/stream endpoint was reintroduced"

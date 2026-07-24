@@ -84,11 +84,14 @@ let subfolderTransfersData = []; // from /api/subfolder-transfers
 let selectedInstId  = null;
 let selectedFolderId = null;
 
-// ── Live updates ──────────────────────────────────────────────────────────────
-// poll() is a one-shot fetch used for the initial paint and right after a
-// mutating action (pause/push/etc.), so the UI doesn't wait for the next
-// server-sent event. Ongoing updates come from the /api/stream SSE feed
-// started by startStream() — not a client-side timer.
+// ── Polling ───────────────────────────────────────────────────────────────────
+// An SSE-pushed live feed briefly replaced this polling loop, but it kept
+// causing the add-on to hang on shutdown/restart (a long-lived streaming
+// connection is something uvicorn's graceful shutdown can end up waiting on
+// indefinitely) and was removed after repeated live failures. Every request
+// here completes in milliseconds, so there's nothing for a shutdown to hang
+// on. Don't reintroduce a long-lived connection without a way to verify the
+// fix against a real restart — see CHANGELOG 0.3.0-0.3.3.
 async function poll() {
   try {
     [statusData, transferData, subfolderTransfersData] = await Promise.all([
@@ -100,24 +103,6 @@ async function poll() {
   } catch (e) {
     console.warn("Poll error:", e);
   }
-}
-
-let _stream = null;
-function startStream() {
-  _stream?.close();
-  _stream = new EventSource("api/stream");
-  _stream.onmessage = (ev) => {
-    try {
-      const data = JSON.parse(ev.data);
-      statusData = data.status;
-      transferData = data.transfers;
-      subfolderTransfersData = data.subfolderTransfers || [];
-      applyPoll();
-    } catch (e) {
-      console.warn("Stream message error:", e);
-    }
-  };
-  // EventSource reconnects automatically on drop/error — nothing to do here.
 }
 
 function applyPoll() {
@@ -1147,8 +1132,9 @@ function onSettingsSidebarChange() {
   await loadInstances();
   await poll();
   switchTab(localStorage.getItem("replicarr-default-tab") || "overview");
-  // Live updates from here on via SSE — no client-side polling timer.
-  startStream();
+  // Poll on a timer — see the note above poll()'s definition for why this
+  // isn't a push-based live feed.
+  setInterval(poll, 3000);
 })();
 
 // Expose for inline handlers (includes renderFolderTable used in detail panel onclick strings)

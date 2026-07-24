@@ -6,7 +6,7 @@ multiple [Syncthing](https://syncthing.net/) instances from one place.
 ## Features
 
 - View all your Syncthing instances, folders, and devices in one dashboard
-- Live sync status with progress, speed, and ETA, pushed over SSE (no polling)
+- Live sync status with progress, speed, and ETA, refreshed every few seconds
 - Add Syncthing instances from the UI or pre-configure them in add-on options
 - Push individual subfolders of a main folder to another instance via Syncthing's selective sync, with automatic rollback if a step fails and a Transfers view of every push in progress or completed
 - Pause, resume, and remove folders; pause, resume, and unshare devices
