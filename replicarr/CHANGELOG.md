@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.1] - 2026-07-24
+
+### Fixed
+- Reverted `apparmor: true` from 0.2.0 — re-enabling it broke add-on
+  *restarts*: s6-overlay's stage0 re-execs into `/run/s6/basedir/bin/init`
+  on restart, which needs execute permission that the `/run/** rw` rule
+  didn't grant, so the container looped on "Permission denied" until
+  disabled again. Back to `apparmor: false`, matching the previously
+  working state. See the comment in `apparmor.txt` for what a future
+  attempt needs to get right, and test through a restart, not just a
+  first boot.
+
 ## [0.2.0] - 2026-07-24
 
 ### Added
