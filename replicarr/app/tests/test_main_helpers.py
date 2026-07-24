@@ -1,4 +1,3 @@
-import asyncio
 import sys
 from pathlib import Path
 
@@ -68,40 +67,20 @@ def test_selective_sync_ignores_idempotent():
     assert once == twice
 
 
-def test_shutdown_wait_pattern_interrupts_immediately_instead_of_sleeping_full_interval():
+def test_stream_max_lifetime_is_comfortably_under_a_typical_kill_grace_period():
     """
-    Regression test for a hung-shutdown bug: /api/stream's loop used to
-    `await asyncio.sleep(REFRESH_INTERVAL_SECONDS)` unconditionally, so an
-    open SSE connection kept the process alive through a graceful shutdown
-    indefinitely (uvicorn waits for in-flight connections to close on their
-    own, which an infinite generator never does by itself). The fix waits
-    on a shutdown Event instead of sleeping blindly, via the same
-    `asyncio.wait_for(event.wait(), timeout=REFRESH_INTERVAL_SECONDS)`
-    pattern main.py's stream() uses.
+    Regression guard for a hung-shutdown bug: an open /api/stream connection
+    never completes on its own, and uvicorn only delivers the ASGI lifespan
+    "shutdown" event *after* in-flight connections close — so a signal set
+    from that lifespan handler can never reach the stream loop; neither side
+    moves first. Confirmed live twice: the process hung until Docker's
+    default ~10s SIGKILL grace period force-killed it, corrupting s6's
+    supervision state for the next boot (see CHANGELOG 0.3.1 and 0.3.2).
 
-    This exercises that exact pattern with a fresh, locally-scoped Event
-    rather than the real module-level `main._shutdown_event` — asyncio.Event
-    objects predating Python 3.10 bind to whichever loop is running at
-    construction time, and the real one is created at module-import time,
-    outside of this test's own asyncio.run() loop. Using a local Event
-    keeps the test meaningful on any Python version without depending on
-    global async state or cross-test ordering.
+    The fix bounds the stream's own lifetime instead of waiting to be told
+    to stop — EventSource reconnects automatically, and once shutdown begins
+    uvicorn refuses new connections, so nothing replaces the one that ends.
+    This just guards the constant itself: it must stay well under a typical
+    container stop grace period, or the whole point of self-bounding is lost.
     """
-    async def scenario():
-        event = asyncio.Event()
-
-        async def set_it_shortly():
-            await asyncio.sleep(0.05)
-            event.set()
-
-        setter = asyncio.create_task(set_it_shortly())
-        start = asyncio.get_event_loop().time()
-        try:
-            await asyncio.wait_for(event.wait(), timeout=main.REFRESH_INTERVAL_SECONDS)
-        except asyncio.TimeoutError:
-            pass
-        await setter
-        return asyncio.get_event_loop().time() - start
-
-    elapsed = asyncio.run(scenario())
-    assert elapsed < 1.0, "shutdown wait should return almost immediately, not wait out the full interval"
+    assert 0 < main.STREAM_MAX_LIFETIME_SECONDS <= 8

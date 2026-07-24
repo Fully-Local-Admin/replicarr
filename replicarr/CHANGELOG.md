@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.2] - 2026-07-24
+
+### Fixed
+- The 0.3.1 fix for the SSE hung-shutdown bug didn't actually work —
+  confirmed live, same symptom recurred (~10s hang, then
+  `s6-svscan: fatal: another instance ... already running` on the next
+  start). Root cause: uvicorn only delivers the ASGI lifespan "shutdown"
+  event *after* all in-flight connections close, but 0.3.1's fix set a
+  shutdown flag from inside that same lifespan handler for the stream loop
+  to watch for — a deadlock, since neither side can move first.
+  `/api/stream` now bounds its own connection lifetime (8 seconds) instead
+  of waiting to be told to stop. EventSource reconnects automatically when
+  a stream ends, and once shutdown begins uvicorn stops accepting new
+  connections, so the cycled-out connection is simply never replaced —
+  this doesn't depend on uvicorn's shutdown-ordering internals at all.
+  Verified live (not just unit-tested) that a stream connection now ends
+  on its own within 8 seconds rather than hanging indefinitely.
+
 ## [0.3.1] - 2026-07-24
 
 ### Fixed
