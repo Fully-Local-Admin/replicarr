@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -80,3 +81,77 @@ def test_no_long_lived_streaming_endpoint_exists():
     """
     stream_routes = [r for r in main.app.routes if getattr(r, "path", "") == "/api/stream"]
     assert not stream_routes, "a long-lived /api/stream endpoint was reintroduced"
+
+
+def test_discovered_api_candidates_private_ipv4():
+    candidates, public = main._discovered_api_candidates("tcp://10.8.0.5:22000")
+    assert candidates == ["https://10.8.0.5:8384", "http://10.8.0.5:8384"]
+    assert public is False
+
+
+def test_discovered_api_candidates_private_ipv6_uses_brackets():
+    candidates, public = main._discovered_api_candidates("[fd00::1234]:22000")
+    assert candidates == ["https://[fd00::1234]:8384", "http://[fd00::1234]:8384"]
+    assert public is False
+
+
+def test_discovered_api_candidates_public_ipv6_never_uses_http():
+    candidates, public = main._discovered_api_candidates(
+        "tcp://[2a02:2f0c:5610:3d00:5152:11a0:ea39:e50d]:22000"
+    )
+    assert candidates == ["https://[2a02:2f0c:5610:3d00:5152:11a0:ea39:e50d]:8384"]
+    assert public is True
+
+
+def test_discovered_api_candidates_rejects_relay_address():
+    assert main._discovered_api_candidates("relay://relay.example:22067") == ([], False)
+
+
+def test_discovered_probe_falls_back_to_private_http_and_verifies_id(monkeypatch):
+    calls = []
+
+    async def fake_status(url, api_key):
+        calls.append((url, api_key))
+        if url.startswith("https://"):
+            raise RuntimeError("TLS not enabled")
+        return {"myID": "EXPECTED-ID", "version": "v1"}
+
+    monkeypatch.setattr(main.st, "get_system_status", fake_status)
+    result = asyncio.run(main.discovered_instance_test(
+        main.DiscoveredInstanceTestRequest(
+            address="10.8.0.5:22000",
+            api_key="secret",
+            expected_device_id="EXPECTED-ID",
+        )
+    ))
+
+    assert result == {
+        "reachable": True,
+        "ok": True,
+        "url": "http://10.8.0.5:8384",
+        "myID": "EXPECTED-ID",
+        "version": "v1",
+    }
+    assert calls == [
+        ("https://10.8.0.5:8384", "secret"),
+        ("http://10.8.0.5:8384", "secret"),
+    ]
+
+
+def test_discovered_probe_rejects_wrong_device(monkeypatch):
+    async def fake_status(url, api_key):
+        return {"myID": "WRONG-ID", "version": "v1"}
+
+    monkeypatch.setattr(main.st, "get_system_status", fake_status)
+    result = asyncio.run(main.discovered_instance_test(
+        main.DiscoveredInstanceTestRequest(
+            address="10.8.0.5:22000",
+            api_key="secret",
+            expected_device_id="EXPECTED-ID",
+        )
+    ))
+
+    assert result["reachable"] is True
+    assert result["ok"] is False
+    assert result["expectedDeviceID"] == "EXPECTED-ID"
+    assert result["actualDeviceID"] == "WRONG-ID"

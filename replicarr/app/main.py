@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import ipaddress
 import json
 import logging
 import os
@@ -17,6 +18,7 @@ import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
@@ -511,6 +513,34 @@ class WizardTestRequest(BaseModel):
     api_key: str
 
 
+class DiscoveredInstanceTestRequest(BaseModel):
+    address: str
+    api_key: str
+    expected_device_id: str
+
+
+def _discovered_api_candidates(address: str) -> tuple[list[str], bool]:
+    """Turn a live Syncthing transport address into safe GUI/API candidates."""
+    value = address.strip()
+    if not value:
+        return [], False
+    try:
+        parsed = urlsplit(value if "://" in value else f"tcp://{value}")
+        if parsed.scheme not in ("tcp", "quic") or not parsed.hostname:
+            return [], False
+        host = parsed.hostname
+        ip = ipaddress.ip_address(host.split("%", 1)[0])
+    except (ValueError, TypeError):
+        return [], False
+
+    url_host = f"[{host}]" if ":" in host else host
+    public = ip.is_global
+    candidates = [f"https://{url_host}:8384"]
+    if not public:
+        candidates.append(f"http://{url_host}:8384")
+    return candidates, public
+
+
 @app.post("/api/instances/_wizard_test")
 async def wizard_test(body: WizardTestRequest):
     """Test a Syncthing connection without persisting — used by the Add Instance wizard."""
@@ -523,6 +553,67 @@ async def wizard_test(body: WizardTestRequest):
         return {"reachable": False, "ok": False, "error": f"HTTP {e.response.status_code}"}
     except Exception as e:
         return {"reachable": False, "ok": False, "error": str(e)}
+
+
+@app.post("/api/instances/_discover_test")
+async def discovered_instance_test(body: DiscoveredInstanceTestRequest):
+    """Find and verify a discovered peer's API without persisting credentials."""
+    candidates, public = _discovered_api_candidates(body.address)
+    if not candidates:
+        return {
+            "reachable": False,
+            "ok": False,
+            "error": "The live sync address cannot be used to locate this device's API.",
+        }
+
+    failures: list[str] = []
+    for url in candidates:
+        try:
+            status = await asyncio.wait_for(
+                st.get_system_status(url, body.api_key),
+                timeout=4.0,
+            )
+            actual_id = status.get("myID", "")
+            if actual_id != body.expected_device_id:
+                return {
+                    "reachable": True,
+                    "ok": False,
+                    "error": "The detected address belongs to a different Syncthing device.",
+                    "expectedDeviceID": body.expected_device_id,
+                    "actualDeviceID": actual_id,
+                }
+            return {
+                "reachable": True,
+                "ok": True,
+                "url": url,
+                "myID": actual_id,
+                "version": status.get("version"),
+            }
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code in (401, 403):
+                return {
+                    "reachable": True,
+                    "ok": False,
+                    "error": "The API key was rejected by the discovered device.",
+                }
+            failures.append(f"{url}: HTTP {e.response.status_code}")
+        except Exception as e:
+            failures.append(f"{url}: {e}")
+
+    if public:
+        error = (
+            "The device has a public IP address and its HTTPS API could not be reached. "
+            "Replicarr did not try plain HTTP because that would expose the API key. "
+            "Use a VPN address or enable HTTPS for the Syncthing GUI."
+        )
+    else:
+        error = (
+            "Could not reach the Syncthing API on port 8384. On the remote device, "
+            "make sure the GUI Listen Address is reachable from Replicarr and that "
+            "the firewall allows the connection."
+        )
+    logger.debug("Discovered device probe failed: %s", "; ".join(failures))
+    return {"reachable": False, "ok": False, "error": error}
 
 
 @app.post("/api/instances/{inst_id}/test")

@@ -394,7 +394,7 @@ function renderInstanceDetail(inst) {
           </div>
           <div class="flex gap-6">
             ${d.address && !isManagedSyncthingDevice(d.deviceID)
-              ? `<button class="btn btn-primary btn-sm" onclick="openAddDiscoveredDevice(this.closest('[data-device-id]').dataset.deviceName,this.closest('[data-device-id]').dataset.deviceAddress)">Add to Replicarr</button>`
+              ? `<button class="btn btn-primary btn-sm" onclick="openAddDiscoveredDevice(this.closest('[data-device-id]').dataset.deviceId,this.closest('[data-device-id]').dataset.deviceName,this.closest('[data-device-id]').dataset.deviceAddress)">Add to Replicarr</button>`
               : ""}
             ${d.paused
               ? `<button class="btn btn-ghost btn-sm" onclick="actDevice('${esc(inst.id)}',this.closest('[data-device-id]').dataset.deviceId,'resume')">Resume</button>`
@@ -725,19 +725,10 @@ function renderInstancesTab() {
 let _editingId   = null;
 let _wizInstStep = 1;
 let _wizInstTestResult = null;
+let _discoveredDevice = null;
 
 function isManagedSyncthingDevice(deviceId) {
   return statusData.some(inst => inst.myID === deviceId);
-}
-
-function discoveredDeviceApiUrl(address) {
-  try {
-    const parsed = new URL(address.includes("://") ? address : `tcp://${address}`);
-    if (!["tcp:", "quic:"].includes(parsed.protocol) || !parsed.hostname) return "";
-    return `http://${parsed.hostname}:8384`;
-  } catch {
-    return "";
-  }
 }
 
 function _wizInstSetStep(n) {
@@ -759,22 +750,23 @@ function _wizInstSetStep(n) {
 
 function openAddInstance(prefill = {}) {
   _editingId = null;
+  _discoveredDevice = prefill.discovered || null;
   _wizInstTestResult = null;
-  $("#modal-inst-title").textContent = prefill.discovered ? "Add Discovered Device" : "Add Instance";
+  $("#modal-inst-title").textContent = _discoveredDevice ? "Add Discovered Device" : "Add Instance";
   $("#modal-inst-name").value = prefill.name || "";
   $("#modal-inst-url").value  = prefill.url || "";
   $("#modal-inst-key").value  = "";
+  $("#modal-inst-url-field").classList.toggle("hidden", Boolean(_discoveredDevice));
   $("#modal-inst-error").classList.add("hidden");
   _wizInstSetStep(1);
   $("#modal-inst").classList.remove("hidden");
   setTimeout(() => $("#modal-inst-name").focus(), 60);
 }
 
-function openAddDiscoveredDevice(name, address) {
+function openAddDiscoveredDevice(deviceId, name, address) {
   openAddInstance({
-    discovered: true,
+    discovered: { deviceId, address },
     name,
-    url: discoveredDeviceApiUrl(address),
   });
 }
 
@@ -782,11 +774,13 @@ function openEditInstance(id) {
   const inst = instances.find(i => i.id === id);
   if (!inst) return;
   _editingId = id;
+  _discoveredDevice = null;
   _wizInstTestResult = null;
   $("#modal-inst-title").textContent = "Edit Instance";
   $("#modal-inst-name").value = inst.name;
   $("#modal-inst-url").value  = inst.url;
   $("#modal-inst-key").value  = "";
+  $("#modal-inst-url-field").classList.remove("hidden");
   $("#modal-inst-error").classList.add("hidden");
   _wizInstSetStep(1);
   $("#modal-inst").classList.remove("hidden");
@@ -798,26 +792,30 @@ async function wizInstNext() {
     const name = $("#modal-inst-name").value.trim();
     const url  = $("#modal-inst-url").value.trim();
     const key  = $("#modal-inst-key").value.trim();
-    if (!name || !url || !key) { showErr("modal-inst-error", "All fields required."); return; }
+    if (!name || !key || (!_discoveredDevice && !url)) {
+      showErr("modal-inst-error", _discoveredDevice ? "Name and API key are required." : "All fields required.");
+      return;
+    }
     // Run connection test
     const btn = $("#wiz-inst-next");
     btn.disabled = true;
     btn.textContent = "Testing…";
     try {
-      // Save temporarily so we can call /test (for edit) or test directly
-      let testId = _editingId;
-      if (!testId) {
-        // Temporarily save to test, then we'll confirm on step 3
-        // Instead call test inline via a temporary approach — just POST to test endpoint
-        // by saving then testing then deleting if user cancels. Simpler: call the Syncthing
-        // status endpoint directly via the backend test helper by temporarily registering.
-        // Easiest: just call test with the current values inline.
-      }
-      const r = await api("api/instances/_wizard_test", {
-        method: "POST",
-        body: { url, api_key: key },
-      });
+      const r = _discoveredDevice
+        ? await api("api/instances/_discover_test", {
+            method: "POST",
+            body: {
+              address: _discoveredDevice.address,
+              api_key: key,
+              expected_device_id: _discoveredDevice.deviceId,
+            },
+          })
+        : await api("api/instances/_wizard_test", {
+            method: "POST",
+            body: { url, api_key: key },
+          });
       _wizInstTestResult = r;
+      if (r.ok && r.url) $("#modal-inst-url").value = r.url;
     } catch (e) {
       _wizInstTestResult = { ok: false, error: e.message };
     }

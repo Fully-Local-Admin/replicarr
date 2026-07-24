@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.9] - 2026-07-25
+
+### Changed
+- Simplified **Add to Replicarr** for discovered Syncthing devices to ask only
+  for an editable name and the remote API key. Replicarr now derives the host
+  from the live sync connection, probes HTTPS and (for non-public addresses)
+  HTTP on port 8384, and fills in the verified API URL automatically.
+- The discovered-device connection test now confirms that the API's device ID
+  matches the peer the user selected, preventing the wrong Syncthing instance
+  from being saved.
+- Public IP addresses are never probed over plain HTTP, so Replicarr will not
+  knowingly send an API key unencrypted across the public internet. Connection
+  failures now explain whether the user needs a VPN/HTTPS or a reachable GUI
+  listen address and firewall rule.
+
 ## [0.3.8] - 2026-07-25
 
 ### Fixed
