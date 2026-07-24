@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2] - 2026-07-24
+
+### Fixed
+- Re-enabled `apparmor: true` with the actual missing rule identified from
+  the 0.2.0 crash: `/run/s6/basedir/** rix,`. s6-overlay re-execs
+  `/run/s6/basedir/bin/init` on every restart; the profile only granted
+  `rw` there, not execute, which is what caused the "Permission denied"
+  boot loop. **Please verify this survives an actual add-on *restart***
+  (not just a fresh install) — that's the exact path that broke last
+  time. If it fails again, set `apparmor: false` in `config.yaml` and
+  bump the version to recover, same as before.
+
 ## [0.2.1] - 2026-07-24
 
 ### Fixed

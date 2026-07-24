@@ -36,18 +36,20 @@ profile replicarr flags=(attach_disconnected,mediate_deleted) {
   /etc/s6-overlay/** r,
 
   # /run — parent dir needs rw so s6 can mkdir /run/s6 and /run/service.
-  # CONFIRMED BROKEN as rw-only: on container restart, s6-overlay's stage0
-  # re-execs into /run/s6/basedir/bin/init (a copy of s6-overlay's own init
-  # it stages there at boot). rw does not grant execute, so that re-exec was
-  # denied and the container looped forever on "Permission denied" until
-  # apparmor was disabled again. If re-attempting this profile, this line
-  # needs to become `/run/** rwix,` (or a scoped rix rule specifically for
-  # /run/s6/basedir/**) — and it must be verified through an actual add-on
-  # *restart*, not just a first boot, since that's the path that broke.
   /run/ rw,
   /run/** rw,
   /var/run/ rw,
   /var/run/** rw,
+
+  # s6-overlay stages (bind-mounts) its own package tree under
+  # /run/s6/basedir/ at boot and re-execs into /run/s6/basedir/bin/init from
+  # there on every restart — confirmed via a live crash: the plain `rw` rule
+  # above covers reading/writing that tree but not executing it, so that
+  # re-exec was denied ("Permission denied") and the container looped
+  # forever. This mirrors the existing /package/** and /command/** rix
+  # rules, just for the runtime-staged copy under /run instead of the
+  # build-time location.
+  /run/s6/basedir/** rix,
 
   # proc — s6 reads /proc/self during suexec
   @{PROC}/self/** r,
