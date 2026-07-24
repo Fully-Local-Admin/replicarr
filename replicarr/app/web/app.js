@@ -336,6 +336,13 @@ function updateDetailPanel(type, instId, folderId) {
 
 function renderInstanceDetail(inst) {
   const body = $("#detail-body");
+  const sameInstance = body.dataset.instanceId === inst.id;
+  const activeTab = sameInstance
+    ? (body.dataset.instanceTab || "dt-folders")
+    : "dt-folders";
+  const scrollTop = sameInstance ? body.scrollTop : 0;
+  body.dataset.instanceId = inst.id;
+  body.dataset.instanceTab = activeTab;
   delete body.dataset.folderKey; // invalidate renderFolderDetail's same-folder check
   const online = inst.online;
 
@@ -357,11 +364,11 @@ function renderInstanceDetail(inst) {
     </div>
 
     <div class="detail-tabs">
-      <button class="detail-tab active" onclick="detailTab(this,'dt-folders')">Folders</button>
-      <button class="detail-tab"        onclick="detailTab(this,'dt-devices')">Devices</button>
+      <button class="detail-tab ${activeTab === "dt-folders" ? "active" : ""}" onclick="detailTab(this,'dt-folders')">Folders</button>
+      <button class="detail-tab ${activeTab === "dt-devices" ? "active" : ""}" onclick="detailTab(this,'dt-devices')">Devices</button>
     </div>
 
-    <div class="detail-tab-panel active" id="dt-folders">
+    <div class="detail-tab-panel ${activeTab === "dt-folders" ? "active" : ""}" id="dt-folders">
       ${folders.length ? folders.map(f => `
         <div class="detail-folder-row" data-folder-id="${esc(f.id)}" onclick="selectFolder('${esc(inst.id)}',this.dataset.folderId); renderFolderTable();" style="cursor:pointer">
           <div class="detail-folder-icon">
@@ -374,7 +381,7 @@ function renderInstanceDetail(inst) {
         </div>`).join("") : '<div class="text-sm text-2 mt-8">No folders.</div>'}
     </div>
 
-    <div class="detail-tab-panel" id="dt-devices">
+    <div class="detail-tab-panel ${activeTab === "dt-devices" ? "active" : ""}" id="dt-devices">
       ${devices.length ? devices.map(d => `
         <div class="detail-folder-row" data-device-id="${esc(d.deviceID)}" data-device-name="${esc(d.name)}" data-device-address="${esc(d.address)}">
           <div class="detail-folder-icon" style="background:${d.connected ? "var(--green-lt)" : "var(--border)"}">
@@ -397,6 +404,7 @@ function renderInstanceDetail(inst) {
         </div>`).join("") : '<div class="text-sm text-2 mt-8">No devices.</div>'}
     </div>
   `;
+  body.scrollTop = scrollTop;
 }
 
 function renderFolderDetail(inst, folderId) {
@@ -544,6 +552,7 @@ async function removeDevice(instId, deviceId) {
 
 function detailTab(btn, panelId) {
   const body = $("#detail-body");
+  body.dataset.instanceTab = panelId;
   body.querySelectorAll(".detail-tab").forEach(t => t.classList.remove("active"));
   body.querySelectorAll(".detail-tab-panel").forEach(p => p.classList.remove("active"));
   btn.classList.add("active");

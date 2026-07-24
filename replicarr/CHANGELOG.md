@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.8] - 2026-07-25
+
+### Fixed
+- Preserve the selected Folders or Devices tab and the instance detail panel's
+  scroll position during periodic status polling. The Devices view no longer
+  snaps back to Folders every three seconds.
+
 ## [0.3.7] - 2026-07-24
 
 ### Added
