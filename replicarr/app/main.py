@@ -54,6 +54,7 @@ _transfers_cache: dict[str, Any] = {
         "inSpeedBytesPerSec": 0.0, "outSpeedBytesPerSec": 0.0, "etaSeconds": None,
     },
 }
+_subfolder_transfers_cache: list[dict[str, Any]] = []
 _sampler_task: asyncio.Task | None = None
 REFRESH_INTERVAL_SECONDS = 2
 
@@ -61,6 +62,8 @@ REFRESH_INTERVAL_SECONDS = 2
 _byte_samples: dict[str, dict[str, Any]] = {}
 # { instance_id + folder_id: { "ts": float, "needBytes": int } }
 _folder_samples: dict[str, dict[str, Any]] = {}
+# { push key: { "ts": float, "needBytes": int } } — see _subfolder_push_key
+_subfolder_samples: dict[str, dict[str, Any]] = {}
 
 EWMA_ALPHA = 0.3  # smoothing factor for byte-rate EWMA
 # { key: smoothed_rate_bytes_per_sec }
@@ -76,7 +79,7 @@ def _ewma(key: str, new_rate: float) -> float:
 
 async def _refresh_all() -> None:
     """Fetches fresh data for every instance and rebuilds both caches."""
-    global _status_cache, _transfers_cache
+    global _status_cache, _transfers_cache, _subfolder_transfers_cache
     instances = store.load_instances()
     results = await asyncio.gather(*[_refresh_instance(i) for i in instances])
 
@@ -111,6 +114,72 @@ async def _refresh_all() -> None:
             "etaSeconds": overall_eta,
         },
     }
+
+    inst_by_id = {i["id"]: i for i in instances}
+    _subfolder_transfers_cache = await asyncio.gather(*[
+        _refresh_subfolder_transfer(p, inst_by_id) for p in store.load_subfolder_pushes()
+    ])
+
+
+def _subfolder_push_key(push: dict[str, Any]) -> str:
+    return f"{push['source_instance_id']}:{push['folder_id']}:{push['subfolder_path']}:{push['target_instance_id']}"
+
+
+async def _refresh_subfolder_transfer(
+    push: dict[str, Any], inst_by_id: dict[str, dict[str, Any]]
+) -> dict[str, Any]:
+    key = _subfolder_push_key(push)
+    source_inst = inst_by_id.get(push["source_instance_id"])
+    target_inst = inst_by_id.get(push["target_instance_id"])
+    base = {
+        "sourceInstanceId": push["source_instance_id"],
+        "sourceInstanceName": source_inst["name"] if source_inst else push["source_instance_id"],
+        "targetInstanceId": push["target_instance_id"],
+        "targetInstanceName": target_inst["name"] if target_inst else push["target_instance_id"],
+        "folderId": push["folder_id"],
+        "folderLabel": push.get("folder_label", push["folder_id"]),
+        "subfolderPath": push["subfolder_path"],
+        "totalBytes": push.get("total_bytes", 0),
+    }
+    if target_inst is None:
+        return {**base, "state": "error", "error": "Target instance no longer exists"}
+
+    try:
+        need = await st.get_db_need(target_inst["url"], target_inst["api_key"], push["folder_id"])
+        prefix = push["subfolder_path"].rstrip("/") + "/"
+        exact = push["subfolder_path"]
+        need_files = [
+            f for group in ("progress", "queued", "rest") for f in need.get(group, [])
+            if f.get("name") == exact or str(f.get("name", "")).startswith(prefix)
+        ]
+        need_bytes = sum(f.get("size", 0) or 0 for f in need_files)
+
+        now = time.monotonic()
+        prev = _subfolder_samples.get(key)
+        if prev and now > prev["ts"]:
+            dt = now - prev["ts"]
+            delta = prev["needBytes"] - need_bytes  # falling = progress
+            _ewma(f"subfolder:{key}:speed", max(0, delta / dt))
+        _subfolder_samples[key] = {"ts": now, "needBytes": need_bytes}
+        speed = _smoothed_rates.get(f"subfolder:{key}:speed", 0.0)
+
+        total_bytes = base["totalBytes"] or need_bytes
+        pct = round(((total_bytes - need_bytes) / total_bytes * 100) if total_bytes else 100, 1)
+        eta = int(need_bytes / speed) if speed > 0 and need_bytes > 0 else None
+
+        return {
+            **base,
+            "totalBytes": total_bytes,
+            "needBytes": need_bytes,
+            "percent": pct,
+            "speedBytesPerSec": round(speed, 1),
+            "speedApproximate": True,
+            "etaSeconds": eta,
+            "state": "complete" if need_bytes == 0 else "syncing",
+        }
+    except Exception as e:
+        logger.debug("Refresh failed for subfolder push %s: %s", key, e)
+        return {**base, "state": "error", "error": str(e)}
 
 
 async def _refresh_instance(inst: dict) -> dict[str, Any]:
@@ -373,6 +442,15 @@ class PushRequest(BaseModel):
     target_path: str
 
 
+class PushSubfolderRequest(BaseModel):
+    subfolder_path: str
+    target_instance_id: str
+    # Only required the first time this main folder is pushed to this target —
+    # later subfolder pushes to the same (folder, target) pair reuse the path
+    # recorded from that first push.
+    target_path: str | None = None
+
+
 # ── Instance endpoints ──────────────────────────────────────────────────────────
 @app.get("/api/instances")
 async def list_instances():
@@ -475,6 +553,11 @@ async def get_transfers():
     return _transfers_cache
 
 
+@app.get("/api/subfolder-transfers")
+async def get_subfolder_transfers():
+    return _subfolder_transfers_cache
+
+
 # ── Live updates ────────────────────────────────────────────────────────────────
 @app.get("/api/stream")
 async def stream(request: Request):
@@ -487,7 +570,11 @@ async def stream(request: Request):
         while True:
             if await request.is_disconnected():
                 break
-            payload = json.dumps({"status": _status_cache, "transfers": _transfers_cache})
+            payload = json.dumps({
+                "status": _status_cache,
+                "transfers": _transfers_cache,
+                "subfolderTransfers": _subfolder_transfers_cache,
+            })
             if payload != last_payload:
                 yield f"data: {payload}\n\n"
                 last_payload = payload
@@ -606,19 +693,32 @@ async def add_folder(inst_id: str, body: FolderCreate):
 
 
 # ── Push (share folder to another instance) ───────────────────────────────────
-@app.post("/api/folders/{inst_id}/{folder_id}/push")
-async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
+async def _ensure_folder_shared(
+    source_inst: dict, target_inst: dict, folder_id: str, target_path: str,
+    create_paused: bool = False,
+) -> dict[str, Any]:
     """
-    5-step folder-sharing flow from source (inst_id) to target.
-    Each step that mutates a remote Syncthing instance registers a matching
-    "undo" action; if a later step fails, everything undoable so far is rolled
-    back (in reverse order, so folder-share references are removed before the
-    device entries they depend on) and the rollback outcome is reported
-    alongside the steps, so a failed push doesn't leave either instance
-    half-configured with only a raw error message to act on.
+    Steps 1-4 of the push flow: get device IDs, register each instance as a
+    device on the other, share the folder from source, and create it on
+    target at target_path. Shared by the whole-folder push endpoint and the
+    subfolder push endpoint's first-time-sharing path.
+
+    Each mutating step registers a matching "undo" action; if a later step
+    fails, everything undoable so far is rolled back (in reverse order, so
+    folder-share references are removed before the device entries they
+    depend on) and the rollback outcome is reported alongside the steps, so
+    a failure doesn't leave either instance half-configured with only a raw
+    error message to act on.
+
+    create_paused=True creates the target folder paused instead of letting
+    it sync immediately — used by the subfolder push flow so the folder
+    can't start pulling everything in the brief window before selective-
+    sync ignore patterns are applied; the caller is responsible for
+    resuming it once those patterns are safely in place.
+
+    Returns {"ok": bool, "steps": [...], "rollback": [...] (on failure only),
+    "sourceDeviceID": str, "targetDeviceID": str (on success)}.
     """
-    source_inst = _get_instance(inst_id)
-    target_inst = _get_instance(body.target_instance_id)
     steps: list[dict] = []
     undo_actions: list[tuple[str, Any]] = []
 
@@ -632,9 +732,9 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
                 results.append({"description": description, "ok": False, "error": str(e)})
         return results
 
-    async def _fail(step: int, description: str, error: str) -> dict:
+    async def _fail(step: int, description: str, error: str) -> dict[str, Any]:
         steps.append({"step": step, "description": description, "ok": False, "error": error})
-        result = {"ok": False, "steps": steps}
+        result: dict[str, Any] = {"ok": False, "steps": steps}
         if undo_actions:
             result["rollback"] = await _rollback()
         return result
@@ -712,17 +812,31 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
             **defaults,
             "id": folder_id,
             "label": src_folder.get("label", folder_id),
-            "path": body.target_path,
+            "path": target_path,
             "devices": [
                 {"deviceID": src_id, "introducedBy": "", "encryptionPassword": ""}
             ],
             "type": src_folder.get("type", "sendreceive"),
-            "paused": False,
+            "paused": create_paused,
         }
         await st.put_config_folder(target_inst["url"], target_inst["api_key"], folder_id, new_folder)
         steps.append({"step": 4, "description": "Created folder on target", "ok": True})
     except Exception as e:
         return await _fail(4, "Create folder on target", str(e))
+
+    return {"ok": True, "steps": steps, "sourceDeviceID": src_id, "targetDeviceID": tgt_id}
+
+
+@app.post("/api/folders/{inst_id}/{folder_id}/push")
+async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
+    """5-step folder-sharing flow from source (inst_id) to target — see _ensure_folder_shared."""
+    source_inst = _get_instance(inst_id)
+    target_inst = _get_instance(body.target_instance_id)
+
+    result = await _ensure_folder_shared(source_inst, target_inst, folder_id, body.target_path)
+    if not result["ok"]:
+        return result
+    steps = result["steps"]
 
     try:
         # Step 5: Check restart required on both (read-only — no rollback needed)
@@ -740,6 +854,196 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
 
     await _refresh_all()
     return {"ok": True, "steps": steps}
+
+
+# ── Subfolder browsing & selective-sync push ──────────────────────────────────
+def _normalize_browse_entries(raw: Any, prefix: str) -> list[dict[str, Any]]:
+    """
+    Normalizes Syncthing's /rest/db/browse response into a flat list of
+    {"name": leaf, "path": full relative path, "type": "dir"|"file"}.
+    NOT independently verified against a live Syncthing instance — if
+    subfolder browsing looks wrong or empty in practice, this is the first
+    place to check against what Syncthing actually returns.
+    """
+    entries: list[dict[str, Any]] = []
+    items = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name") or item.get("Name") or ""
+        if not name:
+            continue
+        full_path = name if name.startswith(prefix) and prefix else (
+            f"{prefix}/{name}".strip("/") if prefix else name
+        )
+        item_type = str(item.get("type") or item.get("Type") or "").upper()
+        is_dir = "DIR" in item_type or "children" in item or "Children" in item
+        entries.append({
+            "name": full_path.rsplit("/", 1)[-1],
+            "path": full_path,
+            "type": "dir" if is_dir else "file",
+        })
+    return entries
+
+
+@app.get("/api/folders/{inst_id}/{folder_id}/browse")
+async def browse_folder(inst_id: str, folder_id: str, prefix: str = ""):
+    """Lists subfolders (not files) one level under `prefix` — used to pick a subfolder to push."""
+    inst = _get_instance(inst_id)
+    try:
+        raw = await st.get_db_browse(inst["url"], inst["api_key"], folder_id, prefix=prefix, levels=1)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    entries = [e for e in _normalize_browse_entries(raw, prefix) if e["type"] == "dir"]
+    return {"prefix": prefix, "entries": entries}
+
+
+def _sum_browse_size(raw: Any) -> int:
+    """Recursively sums file sizes from a /rest/db/browse response, best-effort."""
+    total = 0
+    items = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        children = item.get("children") or item.get("Children")
+        if children:
+            total += _sum_browse_size(children)
+        else:
+            total += item.get("size") or item.get("Size") or 0
+    return total
+
+
+def _selective_sync_ignores(existing: list[str], subfolder_path: str) -> list[str]:
+    """
+    Adds `subfolder_path` to the set of selectively-synced items in an
+    existing ignore list, keeping include ("!"-prefixed) patterns ahead of
+    the catch-all deny so Syncthing's first-match-wins evaluation lets the
+    included subfolders through. Convention taken from Syncthing's own
+    documented "sync only these items" recipe — not independently verified
+    against a live instance.
+    """
+    includes = [p for p in existing if p.startswith("!")]
+    denies = [p for p in existing if not p.startswith("!")]
+    for pattern in (f"!/{subfolder_path}", f"!/{subfolder_path}/**"):
+        if pattern not in includes:
+            includes.append(pattern)
+    if "/*" not in denies:
+        denies.append("/*")
+    return includes + denies
+
+
+@app.post("/api/folders/{inst_id}/{folder_id}/push-subfolder")
+async def push_subfolder(inst_id: str, folder_id: str, body: PushSubfolderRequest):
+    """
+    Pushes a single subfolder of an already-synced main folder to another
+    instance via Syncthing's selective sync, rather than creating a second,
+    independently-registered folder (which Syncthing would reject as nested
+    inside the main folder's own path). The first subfolder pushed for a
+    given (folder, target) pair shares the whole main folder and sets it to
+    sync nothing by default; every subsequent subfolder pushed to the same
+    target just widens what's selectively synced there.
+    """
+    source_inst = _get_instance(inst_id)
+    target_inst = _get_instance(body.target_instance_id)
+    steps: list[dict] = []
+
+    existing = store.find_subfolder_push(inst_id, folder_id, body.target_instance_id)
+    first_share = existing is None
+
+    if first_share:
+        if not body.target_path:
+            raise HTTPException(
+                400,
+                "target_path is required the first time a subfolder of this "
+                "folder is pushed to this instance",
+            )
+        # Created paused: without this, the target would sync the whole
+        # folder in the window between it being created here and the
+        # selective-sync ignore patterns being applied below.
+        result = await _ensure_folder_shared(
+            source_inst, target_inst, folder_id, body.target_path, create_paused=True,
+        )
+        steps.extend(result["steps"])
+        if not result["ok"]:
+            response: dict[str, Any] = {"ok": False, "steps": steps}
+            if "rollback" in result:
+                response["rollback"] = result["rollback"]
+            return response
+        target_path = body.target_path
+    else:
+        target_path = existing["target_path"]
+        steps.append({
+            "description": f"Reusing existing share of '{folder_id}' with {target_inst['name']}",
+            "ok": True,
+        })
+
+    try:
+        current_ignores = await st.get_ignores(target_inst["url"], target_inst["api_key"], folder_id)
+        new_ignores = _selective_sync_ignores(current_ignores, body.subfolder_path)
+        await st.set_ignores(target_inst["url"], target_inst["api_key"], folder_id, new_ignores)
+        steps.append({
+            "description": f"Enabled '{body.subfolder_path}' for selective sync on target",
+            "ok": True,
+        })
+    except Exception as e:
+        detail = "Folder was left paused on target so nothing synced before this was fixed." if first_share else ""
+        steps.append({
+            "description": "Update selective-sync patterns on target",
+            "ok": False, "error": f"{e} {detail}".strip(),
+        })
+        return {"ok": False, "steps": steps}
+
+    if first_share:
+        try:
+            await st.resume_folder(target_inst["url"], target_inst["api_key"], folder_id)
+            steps.append({"description": "Resumed folder on target now that selective sync is set", "ok": True})
+        except Exception as e:
+            steps.append({
+                "description": "Resume folder on target", "ok": False,
+                "error": f"{e} Selective-sync patterns are set, but you'll need to resume the "
+                         f"'{folder_id}' folder on {target_inst['name']} manually.",
+            })
+            return {"ok": False, "steps": steps}
+
+    try:
+        src_folder = await st.get_config_folder(source_inst["url"], source_inst["api_key"], folder_id)
+        folder_label = src_folder.get("label", folder_id)
+        browse_raw = await st.get_db_browse(
+            source_inst["url"], source_inst["api_key"], folder_id,
+            prefix=body.subfolder_path, levels=100,
+        )
+        total_bytes = _sum_browse_size(browse_raw)
+    except Exception as e:
+        logger.debug("Could not size subfolder %s on push: %s", body.subfolder_path, e)
+        folder_label, total_bytes = folder_id, 0
+
+    store.add_subfolder_push(
+        inst_id, folder_id, folder_label, body.subfolder_path,
+        body.target_instance_id, target_path, total_bytes,
+    )
+    await _refresh_all()
+    return {"ok": True, "steps": steps}
+
+
+@app.delete("/api/folders/{inst_id}/{folder_id}/push-subfolder", status_code=204)
+async def unpush_subfolder(inst_id: str, folder_id: str, subfolder_path: str, target_instance_id: str):
+    """Stops selectively syncing this subfolder on the target and forgets the mapping."""
+    target_inst = _get_instance(target_instance_id)
+    try:
+        current_ignores = await st.get_ignores(target_inst["url"], target_inst["api_key"], folder_id)
+        remaining = [
+            p for p in current_ignores
+            if p not in (f"!/{subfolder_path}", f"!/{subfolder_path}/**")
+        ]
+        await st.set_ignores(target_inst["url"], target_inst["api_key"], folder_id, remaining)
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(e.response.status_code, e.response.text)
+    except Exception as e:
+        raise HTTPException(500, str(e))
+    store.remove_subfolder_push(inst_id, folder_id, subfolder_path, target_instance_id)
+    await _refresh_all()
 
 
 # ── Static frontend ─────────────────────────────────────────────────────────────

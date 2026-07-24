@@ -32,15 +32,32 @@ instances:
     api_key: another-api-key
 ```
 
-### Pushing a folder to another instance
+### Pushing a subfolder to another instance
 
-Use the **Push** flow (Phase 4) to share a folder from one Syncthing
-instance to another. Replicarr handles the 5-step device registration and
-folder-sharing flow — you just supply the target path where the data should
-land. If a step fails partway through, Replicarr automatically rolls back
-the steps that already succeeded and reports the outcome; if a rollback
-step itself fails, you may need to finish cleaning up manually in
-Syncthing's own UI.
+Replicarr pushes **subfolders**, never a whole main folder as one unit.
+Open a folder's detail panel (click it on the Overview tab) and browse into
+its **Subfolders** section, then click **Push →** on the specific subfolder
+you want on another instance.
+
+Under the hood, Syncthing folders always sync as a whole, so Replicarr
+can't just register the subfolder as its own independent folder (Syncthing
+won't allow a folder nested inside another folder's path anyway). Instead:
+
+- The **first** subfolder you push from a given main folder to a given
+  target shares that whole main folder with the target (device
+  registration, folder creation — the same steps as before), but configures
+  the target to selectively sync **only** the subfolder you pushed, not the
+  rest of the folder.
+- **Every subsequent** subfolder pushed from that same main folder to the
+  same target just widens what's selectively synced there — no new device
+  registration, no path to re-enter.
+
+If a step fails partway through the first-time share, Replicarr
+automatically rolls back what already succeeded and reports the outcome;
+if a rollback step itself fails, you may need to finish cleaning up
+manually in Syncthing's own UI. The Transfers tab shows every subfolder
+push — in progress and completed — with its source, target, size, and
+approximate speed.
 
 ### Removing folders and devices
 

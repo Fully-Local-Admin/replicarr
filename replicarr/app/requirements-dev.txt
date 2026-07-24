@@ -1,2 +1,6 @@
 -r requirements.txt
 pytest==8.3.3
+# Only needed to run the test suite on Python <3.10 (the container itself
+# runs 3.12); pydantic v2 needs this to evaluate `X | None`-style
+# annotations when the interpreter can't do it natively.
+eval_type_backport==0.2.2

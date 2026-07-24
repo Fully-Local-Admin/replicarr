@@ -80,6 +80,7 @@ let activeTab     = "overview";
 let instances     = [];   // from /api/instances (no api_key)
 let statusData    = [];   // from /api/status
 let transferData  = null; // from /api/transfers
+let subfolderTransfersData = []; // from /api/subfolder-transfers
 let selectedInstId  = null;
 let selectedFolderId = null;
 
@@ -90,9 +91,10 @@ let selectedFolderId = null;
 // started by startStream() — not a client-side timer.
 async function poll() {
   try {
-    [statusData, transferData] = await Promise.all([
+    [statusData, transferData, subfolderTransfersData] = await Promise.all([
       api("api/status"),
       api("api/transfers"),
+      api("api/subfolder-transfers"),
     ]);
     applyPoll();
   } catch (e) {
@@ -109,6 +111,7 @@ function startStream() {
       const data = JSON.parse(ev.data);
       statusData = data.status;
       transferData = data.transfers;
+      subfolderTransfersData = data.subfolderTransfers || [];
       applyPoll();
     } catch (e) {
       console.warn("Stream message error:", e);
@@ -139,28 +142,9 @@ function switchTab(tab) {
   if (tab === "instances")  renderInstancesTab();
 }
 
-// ── Sidebar count & filters ───────────────────────────────────────────────────
+// ── Sidebar count ─────────────────────────────────────────────────────────────
 function updateSidebarCount() {
   $("#sb-count").textContent = instances.length;
-}
-
-let activeFilter = null;
-
-function applyFilter(filter) {
-  activeFilter = activeFilter === filter ? null : filter;
-  $$("[id^='filter-']").forEach(el => el.classList.remove("active"));
-  if (activeFilter) $(`#filter-${activeFilter}`)?.classList.add("active");
-  renderOverview();
-}
-
-function filteredStatus() {
-  if (!activeFilter) return statusData;
-  return statusData.filter(inst => {
-    if (activeFilter === "online")  return inst.online === true;
-    if (activeFilter === "offline") return inst.online === false;
-    if (activeFilter === "syncing") return (inst.folders || []).some(f => f.state === "syncing");
-    return true;
-  });
 }
 
 // ── Overview tab ──────────────────────────────────────────────────────────────
@@ -183,7 +167,7 @@ function renderProblemsBanner() {
 
   const parts = [];
   if (offlineInstances.length) {
-    parts.push(`<span class="problem-link" onclick="applyFilter('offline'); switchTab('overview')">${offlineInstances.length} instance${offlineInstances.length !== 1 ? "s" : ""} offline</span>`);
+    parts.push(`<span class="problem-link" onclick="switchTab('instances')">${offlineInstances.length} instance${offlineInstances.length !== 1 ? "s" : ""} offline</span>`);
   }
   if (folderErrors.length) {
     parts.push(`${folderErrors.length} folder${folderErrors.length !== 1 ? "s" : ""} with errors`);
@@ -203,7 +187,7 @@ function renderProblemsBanner() {
 
 function renderQuickCards() {
   const el = $("#quick-cards");
-  const visible = filteredStatus();
+  const visible = statusData;
   if (!statusData.length) {
     el.innerHTML = `<div class="loading-row" style="grid-column:1/-1">
       No instances. <button class="btn btn-primary btn-sm" onclick="switchTab('instances')">Add Instance</button>
@@ -312,7 +296,6 @@ function renderFolderTable() {
           ${f.paused
             ? `<button class="btn btn-ghost btn-sm" title="Resume folder" onclick="actFolder(event,'resume','${esc(inst.id)}',this.closest('tr').dataset.folderId)">Resume</button>`
             : `<button class="btn btn-ghost btn-sm" title="Pause folder — stops entire folder sync" onclick="actFolder(event,'pause','${esc(inst.id)}',this.closest('tr').dataset.folderId)">Pause</button>`}
-          <button class="btn btn-ghost btn-sm" onclick="openPushModal(event,'${esc(inst.id)}',this.closest('tr').dataset.folderId)">Push →</button>
           <button class="btn btn-danger btn-sm" title="Remove folder from Syncthing" onclick="removeFolder(event,'${esc(inst.id)}',this.closest('tr').dataset.folderId)">Remove</button>
         </div>
       </td>
@@ -463,10 +446,16 @@ function renderFolderDetail(inst, folderId) {
       ${folder.paused
         ? `<button class="btn btn-ghost btn-sm" onclick="actFolderDetail('resume','${esc(inst.id)}',this.parentElement.dataset.folderId)">Resume</button>`
         : `<button class="btn btn-ghost btn-sm" onclick="actFolderDetail('pause','${esc(inst.id)}',this.parentElement.dataset.folderId)" title="Pauses the entire folder — not a single file">Pause</button>`}
-      <button class="btn btn-primary btn-sm" onclick="openPushModal(null,'${esc(inst.id)}',this.parentElement.dataset.folderId)">Push →</button>
       <button class="btn btn-danger btn-sm" title="Remove folder from Syncthing" onclick="removeFolder(null,'${esc(inst.id)}',this.parentElement.dataset.folderId)">Remove</button>
     </div>
+
+    <div class="detail-section mt-12">
+      <div class="detail-section-title">Subfolders</div>
+      <div class="text-xs text-2 mb-8">Push individual subfolders to another instance — the whole folder is never pushed as one unit.</div>
+      <div class="subfolder-browser" id="subfolder-browser"></div>
+    </div>
   `;
+  renderSubfolderBrowser(inst.id, folder.id, $("#subfolder-browser"), "");
 }
 
 async function actFolderDetail(action, instId, folderId) {
@@ -474,6 +463,49 @@ async function actFolderDetail(action, instId, folderId) {
     await api(`api/folders/${instId}/${folderId}/${action}`, { method: "POST" });
     await poll();
   } catch (e) { alert(e.message); }
+}
+
+// ── Subfolder browser ─────────────────────────────────────────────────────────
+// Lists subfolders inside a main folder, one level at a time, so individual
+// subfolders can be pushed — Syncthing folders sync as a whole, so a
+// subfolder push works via selective sync on the target rather than
+// creating a second, independently-registered folder inside the first.
+async function renderSubfolderBrowser(instId, folderId, containerEl, prefix) {
+  containerEl.innerHTML = '<div class="loading-row">Loading…</div>';
+  try {
+    const r = await api(`api/folders/${instId}/${folderId}/browse?prefix=${encodeURIComponent(prefix)}`);
+    if (!r.entries.length) {
+      containerEl.innerHTML = '<div class="text-sm text-2">No subfolders here.</div>';
+      return;
+    }
+    containerEl.innerHTML = r.entries.map(entry => `
+      <div class="subfolder-row" data-path="${esc(entry.path)}">
+        <div class="subfolder-row-main">
+          <div class="subfolder-row-toggle" onclick="toggleSubfolderRow(this,'${esc(instId)}','${esc(folderId)}')">
+            <svg class="subfolder-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span>${esc(entry.name)}</span>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="openPushModal(event,'${esc(instId)}','${esc(folderId)}',this.closest('.subfolder-row').dataset.path)">Push →</button>
+        </div>
+        <div class="subfolder-children hidden"></div>
+      </div>`).join("");
+  } catch (e) {
+    containerEl.innerHTML = `<div class="alert alert-error">Could not browse: ${esc(e.message)}</div>`;
+  }
+}
+
+function toggleSubfolderRow(toggleEl, instId, folderId) {
+  const row = toggleEl.closest(".subfolder-row");
+  const childrenEl = row.querySelector(".subfolder-children");
+  const chevron = toggleEl.querySelector(".subfolder-chevron");
+  const opening = childrenEl.classList.contains("hidden");
+  childrenEl.classList.toggle("hidden", !opening);
+  chevron.classList.toggle("open", opening);
+  if (opening && !childrenEl.dataset.loaded) {
+    childrenEl.dataset.loaded = "1";
+    renderSubfolderBrowser(instId, folderId, childrenEl, row.dataset.path);
+  }
 }
 
 async function actDevice(instId, deviceId, action) {
@@ -572,6 +604,51 @@ function renderTransfers() {
     html += `</tbody></table></div>`;
   }
   $("#transfer-folders").innerHTML = html;
+
+  renderSubfolderTransfers();
+}
+
+function renderSubfolderTransfers() {
+  const el = $("#subfolder-transfers");
+  if (!subfolderTransfersData.length) {
+    el.innerHTML = '<div class="text-sm text-2" style="padding:4px 0 12px">No subfolders have been pushed yet — push one from a folder\'s detail panel on the Overview tab.</div>';
+    return;
+  }
+
+  const row = (t) => {
+    if (t.state === "error") {
+      return `<tr><td colspan="6" class="offline-row" style="padding:10px 20px">${esc(t.subfolderPath)} (${esc(t.sourceInstanceName)} → ${esc(t.targetInstanceName)}): ${esc(t.error || "Error")}</td></tr>`;
+    }
+    const pct = t.percent ?? (t.state === "complete" ? 100 : 0);
+    const fc  = pct >= 100 ? "complete" : "";
+    return `<tr>
+      <td><div class="td-name"><div class="td-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
+        <div><div>${esc(t.subfolderPath)}</div><div class="td-meta mono">${esc(t.folderLabel)}</div></div>
+      </div></td>
+      <td class="text-sm">${esc(t.sourceInstanceName)} → ${esc(t.targetInstanceName)}</td>
+      <td class="text-sm">${fmtBytes(t.totalBytes)}</td>
+      <td><div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div><div class="text-xs text-2 mt-4">${pct}% · ${fmtBytes(t.needBytes)} left</div></td>
+      <td class="text-sm">${fmtSpeed(t.speedBytesPerSec)}</td>
+      <td class="text-sm">${fmtEta(t.etaSeconds)}</td>
+    </tr>`;
+  };
+
+  const table = (title, rows) => !rows.length ? "" : `
+    <div class="file-table-wrap" style="margin-bottom:12px">
+      <div class="file-table-header"><span class="section-title">${title}</span></div>
+      <table class="table"><thead><tr>
+        <th style="width:26%">Subfolder</th>
+        <th style="width:18%">From → To</th>
+        <th style="width:10%">Size</th>
+        <th style="width:24%">Progress</th>
+        <th style="width:12%">Speed <span class="text-3">(approx)</span></th>
+        <th style="width:10%">ETA</th>
+      </tr></thead><tbody>${rows.map(row).join("")}</tbody></table>
+    </div>`;
+
+  const inProgress = subfolderTransfersData.filter(t => t.state !== "complete");
+  const completed  = subfolderTransfersData.filter(t => t.state === "complete");
+  el.innerHTML = table("Subfolder Transfers — In Progress", inProgress) + table("Subfolder Transfers — Completed", completed);
 }
 
 // ── Instances tab ─────────────────────────────────────────────────────────────
@@ -924,22 +1001,23 @@ function _renderFolderConfirm() {
     </div>`;
 }
 
-// ── Push ──────────────────────────────────────────────────────────────────────
-let _pushSrcInstId = null;
-let _pushFolderId  = null;
+// ── Push (subfolder → selective sync on target) ────────────────────────────────
+let _pushSrcInstId    = null;
+let _pushFolderId     = null;
+let _pushSubfolderPath = null;
 
-function openPushModal(e, instId, folderId) {
+function openPushModal(e, instId, folderId, subfolderPath) {
   if (e) e.stopPropagation();
   const targets = instances.filter(i => i.id !== instId);
   if (!targets.length) {
     alert("No other instances to push to. Add a second Syncthing instance first.");
     return;
   }
-  _pushSrcInstId = instId;
-  _pushFolderId  = folderId;
-  const inst   = statusData.find(i => i.id === instId);
-  const folder = inst?.folders?.find(f => f.id === folderId);
-  $("#modal-push-folder").textContent = folder?.label || folderId;
+  _pushSrcInstId     = instId;
+  _pushFolderId      = folderId;
+  _pushSubfolderPath = subfolderPath;
+  const inst = statusData.find(i => i.id === instId);
+  $("#modal-push-folder").textContent = subfolderPath;
   $("#modal-push-source").textContent = inst?.name || instId;
   const sel = $("#modal-push-target");
   sel.innerHTML = targets.map(i => `<option value="${esc(i.id)}">${esc(i.name)}</option>`).join("");
@@ -954,13 +1032,16 @@ function openPushModal(e, instId, folderId) {
 async function executePush() {
   const targetId   = $("#modal-push-target").value;
   const targetPath = $("#modal-push-path").value.trim();
-  if (!targetPath) { showErr("modal-push-error", "Target path required."); return; }
   $("#modal-push-btn").disabled = true;
   $("#modal-push-error").classList.add("hidden");
   try {
-    const r = await api(`api/folders/${_pushSrcInstId}/${_pushFolderId}/push`, {
+    const r = await api(`api/folders/${_pushSrcInstId}/${_pushFolderId}/push-subfolder`, {
       method: "POST",
-      body: { target_instance_id: targetId, target_path: targetPath },
+      body: {
+        subfolder_path: _pushSubfolderPath,
+        target_instance_id: targetId,
+        target_path: targetPath || null,
+      },
     });
     const stepsEl = $("#modal-push-steps");
     stepsEl.classList.remove("hidden");
@@ -1016,28 +1097,69 @@ function toggleTheme() {
   localStorage.setItem("replicarr-theme", dark ? "dark" : "light");
 }
 
+// ── Sidebar toggle ────────────────────────────────────────────────────────────
+function applySidebar(collapsed) {
+  $(".app").classList.toggle("sidebar-collapsed", collapsed);
+}
+function toggleSidebar() {
+  const collapsed = !$(".app").classList.contains("sidebar-collapsed");
+  applySidebar(collapsed);
+  localStorage.setItem("replicarr-sidebar-collapsed", collapsed ? "1" : "0");
+}
+
+// ── Settings modal ────────────────────────────────────────────────────────────
+function openSettingsModal() {
+  $("#settings-theme").value = localStorage.getItem("replicarr-theme") || "system";
+  $("#settings-default-tab").value = localStorage.getItem("replicarr-default-tab") || "overview";
+  $("#settings-sidebar-collapsed").checked = localStorage.getItem("replicarr-sidebar-collapsed") === "1";
+  $("#modal-settings").classList.remove("hidden");
+}
+
+function onSettingsThemeChange() {
+  const v = $("#settings-theme").value;
+  if (v === "system") {
+    localStorage.removeItem("replicarr-theme");
+    applyTheme(window.matchMedia("(prefers-color-scheme: dark)").matches);
+  } else {
+    localStorage.setItem("replicarr-theme", v);
+    applyTheme(v === "dark");
+  }
+}
+
+function onSettingsDefaultTabChange() {
+  localStorage.setItem("replicarr-default-tab", $("#settings-default-tab").value);
+}
+
+function onSettingsSidebarChange() {
+  const collapsed = $("#settings-sidebar-collapsed").checked;
+  localStorage.setItem("replicarr-sidebar-collapsed", collapsed ? "1" : "0");
+  applySidebar(collapsed);
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
-  // Apply saved theme before first render to avoid flash
+  // Apply saved theme/sidebar state before first render to avoid a flash
   const saved = localStorage.getItem("replicarr-theme");
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   applyTheme(saved ? saved === "dark" : prefersDark);
+  applySidebar(localStorage.getItem("replicarr-sidebar-collapsed") === "1");
 
   await loadInstances();
   await poll();
-  switchTab("overview");
+  switchTab(localStorage.getItem("replicarr-default-tab") || "overview");
   // Live updates from here on via SSE — no client-side polling timer.
   startStream();
 })();
 
 // Expose for inline handlers (includes renderFolderTable used in detail panel onclick strings)
 Object.assign(window, {
-  toggleTheme, applyFilter,
+  toggleTheme, toggleSidebar,
+  openSettingsModal, onSettingsThemeChange, onSettingsDefaultTabChange, onSettingsSidebarChange,
   switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
   actFolder, actFolderDetail, actDevice, removeFolder, removeDevice,
   openAddInstance, openEditInstance, wizInstNext, wizInstBack,
   deleteInstance, testInstance,
   openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,
-  openPushModal, executePush,
+  toggleSubfolderRow, openPushModal, executePush,
   closeModal, poll,
 });

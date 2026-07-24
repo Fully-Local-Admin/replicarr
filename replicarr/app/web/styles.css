@@ -91,6 +91,13 @@ body {
   grid-template-rows: 52px 1fr;
   grid-template-areas: "topbar topbar" "sidebar main";
   height: 100vh;
+  transition: grid-template-columns 0.15s;
+}
+.app.sidebar-collapsed {
+  grid-template-columns: 0 1fr;
+}
+.app.sidebar-collapsed .sidebar {
+  display: none;
 }
 
 /* ── Topbar ────────────────────────────────────────────────────────────────── */
@@ -614,13 +621,6 @@ body {
 .stat-value { font-size: 22px; font-weight: 800; margin: 3px 0 1px; letter-spacing: -0.02em; }
 .stat-sub   { font-size: 11px; color: var(--text-2); }
 
-/* ── Dot indicator ─────────────────────────────────────────────────────────── */
-.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
-.dot-green  { background: var(--green); }
-.dot-red    { background: var(--red); }
-.dot-amber  { background: var(--amber); }
-.dot-gray   { background: #d1d5db; }
-
 /* ── Badge ─────────────────────────────────────────────────────────────────── */
 .badge-config {
   font-size: 10px;
@@ -748,6 +748,31 @@ body {
   transition: background 0.1s, color 0.1s;
 }
 .storage-use-root:hover { background: var(--accent-lt); color: var(--accent); }
+
+/* ── Subfolder browser (folder detail panel) ──────────────────────────────── */
+.subfolder-browser { display: flex; flex-direction: column; gap: 1px; }
+.subfolder-row-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border-radius: var(--radius-sm);
+}
+.subfolder-row-main:hover { background: var(--bg); }
+.subfolder-row-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  font-size: 12px;
+  user-select: none;
+}
+.subfolder-row-toggle span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.subfolder-chevron { color: var(--text-3); flex-shrink: 0; transition: transform 0.15s; }
+.subfolder-chevron.open { transform: rotate(90deg); }
+.subfolder-children { padding-left: 19px; }
 
 /* ── Confirm summary box ───────────────────────────────────────────────────── */
 .confirm-summary {

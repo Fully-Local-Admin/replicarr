@@ -164,3 +164,44 @@ async def post_db_scan(url: str, api_key: str, folder_id: str) -> None:
     async with _client(url, api_key) as c:
         r = await c.post("/rest/db/scan", params={"folder": folder_id})
         r.raise_for_status()
+
+
+async def get_db_browse(
+    url: str, api_key: str, folder_id: str, prefix: str = "", levels: int = 1
+) -> list[dict[str, Any]]:
+    """
+    Lists the contents of a folder at `prefix` (one level by default).
+    NOTE: the exact response shape for nested directories is not fully
+    verified against a live Syncthing instance — treat the first real use
+    of this as the thing to double-check if subfolder browsing looks wrong.
+    """
+    async with _client(url, api_key) as c:
+        r = await c.get(
+            "/rest/db/browse",
+            params={"folder": folder_id, "prefix": prefix, "levels": levels},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def get_db_need(url: str, api_key: str, folder_id: str) -> dict[str, Any]:
+    """Returns {'progress': [...], 'queued': [...], 'rest': [...]} — files not yet in sync."""
+    async with _client(url, api_key) as c:
+        r = await c.get("/rest/db/need", params={"folder": folder_id})
+        r.raise_for_status()
+        return r.json()
+
+
+async def get_ignores(url: str, api_key: str, folder_id: str) -> list[str]:
+    async with _client(url, api_key) as c:
+        r = await c.get("/rest/db/ignores", params={"folder": folder_id})
+        r.raise_for_status()
+        return r.json().get("ignore") or []
+
+
+async def set_ignores(url: str, api_key: str, folder_id: str, patterns: list[str]) -> None:
+    async with _client(url, api_key) as c:
+        r = await c.post(
+            "/rest/db/ignores", params={"folder": folder_id}, json={"ignore": patterns}
+        )
+        r.raise_for_status()

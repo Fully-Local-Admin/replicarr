@@ -1,5 +1,40 @@
 # Changelog
 
+## [0.3.0] - 2026-07-24
+
+### Added
+- Push individual subfolders of an already-synced main folder to another
+  instance, instead of only pushing the whole folder. This works via
+  Syncthing's selective sync (the main folder is shared once, then each
+  pushed subfolder widens what's selectively synced on the target) rather
+  than creating a second folder nested inside the first, which Syncthing
+  doesn't allow. The main folder itself can no longer be pushed directly —
+  only its subfolders, browsable from the folder detail panel. The target
+  folder is created paused on the first push for a given (folder, target)
+  pair and only resumed after selective-sync ignore patterns are safely in
+  place, so it can't briefly sync everything in the window before those
+  patterns are applied.
+  **Not independently verified against a live Syncthing instance**: the
+  `/rest/db/browse` response shape and the exact ignore-pattern ordering
+  Syncthing expects for selective sync are implemented from documentation/
+  memory, not tested live — if subfolder browsing or selective sync looks
+  wrong in practice, `main.py`'s `_normalize_browse_entries` and
+  `_selective_sync_ignores` are the first places to check.
+- Transfers tab now lists individual subfolder pushes (in progress and
+  completed), each showing source → target instance, size, live progress,
+  and approximate speed.
+- Sidebar can be collapsed via a new toggle next to the dark-mode button.
+- Settings modal (sidebar → Settings) with real, working options: theme
+  (light/dark/follow system), default tab on load, and default sidebar
+  state — all saved in the browser.
+
+### Removed
+- The three sidebar filter buttons (Online/Offline/Syncing). The problems
+  banner's "instances offline" link now jumps to the Instances tab instead
+  of filtering the Overview grid.
+- Direct "Push whole folder" UI (table row and folder detail panel) — see
+  "Added" above for why, and the new subfolder-based flow.
+
 ## [0.2.2] - 2026-07-24
 
 ### Fixed
