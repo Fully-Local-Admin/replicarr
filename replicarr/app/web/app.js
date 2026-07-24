@@ -383,6 +383,7 @@ function renderInstanceDetail(inst) {
           <div style="flex:1;min-width:0">
             <div class="truncate fw-600 text-sm">${esc(d.name)}</div>
             <div class="text-xs text-2 mono">${esc(d.deviceID.slice(0,10))}…</div>
+            ${d.address ? `<div class="text-xs text-2 mono">Address: ${esc(d.address)}</div>` : ""}
           </div>
           <div class="flex gap-6">
             ${d.paused
