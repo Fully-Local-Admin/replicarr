@@ -1,5 +1,38 @@
 # Changelog
 
+## [0.2.0] - 2026-07-24
+
+### Added
+- Optional direct (non-Ingress) access via a published port, gated behind
+  HTTP Basic Auth (`basic_auth_username`/`basic_auth_password`); Ingress
+  access is unaffected and never requires it.
+- Remove a folder or unshare a device directly from the dashboard.
+- Real Server-Sent Events feed (`/api/stream`) — the frontend no longer
+  polls on a timer; this is the SSE work the 0.1.0 entry below described
+  but that hadn't actually landed in the code until now.
+- Automatic best-effort rollback when the Push flow fails partway through,
+  with the rollback outcome reported alongside the step list.
+- A problems banner on the Overview tab surfacing offline instances, folder
+  errors, and disconnected devices.
+- Unit tests for the instance store's merge/CRUD logic (`app/tests/`).
+
+### Changed
+- `/api/status` and `/api/transfers` are now served from a single shared
+  cache refreshed every 2s, instead of each browser tab independently
+  re-fetching every configured Syncthing instance on every request.
+- Re-enabled and tightened the AppArmor profile (previously disabled after
+  earlier boot failures).
+
+### Fixed
+- Removed the wildcard CORS policy (`allow_origins: "*"`), which had no
+  legitimate use case and widened the attack surface once a direct port
+  was exposed.
+- Fixed an XSS gap where folder/device IDs from a remote Syncthing peer
+  could break out of inline `onclick` handlers; untrusted values are now
+  passed via `data-*` attributes instead of interpolated into inline JS.
+- Corrupt `instances.json` is now backed up instead of being silently
+  discarded on the next read.
+
 ## [0.1.0] - 2026-06-09
 
 ### Added

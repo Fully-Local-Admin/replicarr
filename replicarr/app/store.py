@@ -15,6 +15,8 @@ import json
 import logging
 import os
 import re
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,6 +24,12 @@ logger = logging.getLogger(__name__)
 
 DATA_PATH = Path(os.environ.get("DATA_PATH", "/data"))
 INSTANCES_FILE = DATA_PATH / "instances.json"
+
+# Guards read-modify-write of INSTANCES_FILE. FastAPI's single-threaded event
+# loop already serializes these calls in practice (none of them await mid-
+# function), but the lock makes that a guarantee rather than an accident of
+# the current implementation, and costs nothing at this scale.
+_lock = threading.Lock()
 
 
 def _slug(name: str) -> str:
@@ -34,7 +42,18 @@ def _load_raw() -> list[dict[str, Any]]:
     try:
         return json.loads(INSTANCES_FILE.read_text())
     except Exception:
-        logger.warning("Could not read %s — starting with empty list", INSTANCES_FILE)
+        backup = INSTANCES_FILE.with_name(f"instances.json.bak.{int(time.time())}")
+        try:
+            INSTANCES_FILE.rename(backup)
+            logger.error(
+                "Could not parse %s — backed up as %s and starting with an empty list",
+                INSTANCES_FILE, backup,
+            )
+        except Exception:
+            logger.error(
+                "Could not parse %s and could not back it up — starting with an empty list",
+                INSTANCES_FILE,
+            )
         return []
 
 
@@ -57,69 +76,73 @@ def merge_config_instances(
     Merge config-defined instances into the persistent store.
     Returns the merged list (also persisted).
     """
-    current = {inst["id"]: inst for inst in _load_raw()}
+    with _lock:
+        current = {inst["id"]: inst for inst in _load_raw()}
 
-    for cfg in config_instances:
-        inst_id = _slug(cfg["name"])
-        entry = {
-            "id": inst_id,
-            "name": cfg["name"],
-            "url": cfg["url"].rstrip("/"),
-            "api_key": cfg["api_key"],
-            "source": "config",
-        }
-        existing = current.get(inst_id)
-        if existing is None or existing.get("source") == "config":
-            current[inst_id] = entry
-        # source=="ui" entries are never touched
+        for cfg in config_instances:
+            inst_id = _slug(cfg["name"])
+            entry = {
+                "id": inst_id,
+                "name": cfg["name"],
+                "url": cfg["url"].rstrip("/"),
+                "api_key": cfg["api_key"],
+                "source": "config",
+            }
+            existing = current.get(inst_id)
+            if existing is None or existing.get("source") == "config":
+                current[inst_id] = entry
+            # source=="ui" entries are never touched
 
-    merged = list(current.values())
-    _save_raw(merged)
-    return merged
+        merged = list(current.values())
+        _save_raw(merged)
+        return merged
 
 
 def add_instance(name: str, url: str, api_key: str) -> dict[str, Any]:
-    instances = _load_raw()
-    inst_id = _slug(name)
-    if any(i["id"] == inst_id for i in instances):
-        raise ValueError(f"Instance with id '{inst_id}' already exists")
-    entry: dict[str, Any] = {
-        "id": inst_id,
-        "name": name,
-        "url": url.rstrip("/"),
-        "api_key": api_key,
-        "source": "ui",
-    }
-    instances.append(entry)
-    _save_raw(instances)
-    return entry
+    with _lock:
+        instances = _load_raw()
+        inst_id = _slug(name)
+        if any(i["id"] == inst_id for i in instances):
+            raise ValueError(f"Instance with id '{inst_id}' already exists")
+        entry: dict[str, Any] = {
+            "id": inst_id,
+            "name": name,
+            "url": url.rstrip("/"),
+            "api_key": api_key,
+            "source": "ui",
+        }
+        instances.append(entry)
+        _save_raw(instances)
+        return entry
 
 
 def update_instance(inst_id: str, name: str, url: str, api_key: str) -> dict[str, Any]:
-    instances = _load_raw()
-    for i, inst in enumerate(instances):
-        if inst["id"] == inst_id:
-            if inst["source"] == "config":
-                raise PermissionError("Cannot edit a config-managed instance")
-            instances[i] = {
-                "id": inst_id,
-                "name": name,
-                "url": url.rstrip("/"),
-                "api_key": api_key,
-                "source": "ui",
-            }
-            _save_raw(instances)
-            return instances[i]
-    raise KeyError(f"Instance '{inst_id}' not found")
+    with _lock:
+        instances = _load_raw()
+        for i, inst in enumerate(instances):
+            if inst["id"] == inst_id:
+                if inst["source"] == "config":
+                    raise PermissionError("Cannot edit a config-managed instance")
+                instances[i] = {
+                    "id": inst_id,
+                    "name": name,
+                    "url": url.rstrip("/"),
+                    "api_key": api_key,
+                    "source": "ui",
+                }
+                _save_raw(instances)
+                return instances[i]
+        raise KeyError(f"Instance '{inst_id}' not found")
 
 
 def delete_instance(inst_id: str) -> None:
-    instances = _load_raw()
-    for inst in instances:
-        if inst["id"] == inst_id:
-            if inst["source"] == "config":
-                raise PermissionError("Cannot delete a config-managed instance")
-            instances.remove(inst)
-            _save_raw(instances)
-            return
-    raise KeyError(f"Instance '{inst_id}' not found")
+    with _lock:
+        instances = _load_raw()
+        for inst in instances:
+            if inst["id"] == inst_id:
+                if inst["source"] == "config":
+                    raise PermissionError("Cannot delete a config-managed instance")
+                instances.remove(inst)
+                _save_raw(instances)
+                return
+        raise KeyError(f"Instance '{inst_id}' not found")

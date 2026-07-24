@@ -17,3 +17,16 @@ configuration:
     api_key_field:
       name: API Key
       description: The Syncthing GUI API key (Settings → GUI → API Key).
+  basic_auth_username:
+    name: Direct access username
+    description: >
+      Username required when reaching Replicarr through its directly-exposed
+      port (outside Home Assistant Ingress). Leave blank, along with the
+      password, to keep direct access disabled — Ingress access is never
+      affected either way.
+  basic_auth_password:
+    name: Direct access password
+    description: >
+      Password required when reaching Replicarr through its directly-exposed
+      port (outside Home Assistant Ingress). Must be set together with the
+      username to enable direct access.

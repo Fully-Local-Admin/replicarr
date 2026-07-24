@@ -6,11 +6,12 @@ multiple [Syncthing](https://syncthing.net/) instances from one place.
 ## Features
 
 - View all your Syncthing instances, folders, and devices in one dashboard
-- Live sync status with progress, speed, and ETA
+- Live sync status with progress, speed, and ETA, pushed over SSE (no polling)
 - Add Syncthing instances from the UI or pre-configure them in add-on options
-- Push (share) a folder from one Syncthing instance to another with a guided flow
-- Pause and resume folder sync and device connections
-- Runs behind Home Assistant Ingress, with an optional directly-exposed port for access from outside Home Assistant
+- Push (share) a folder from one Syncthing instance to another with a guided flow, with automatic rollback if a step fails
+- Pause, resume, and remove folders; pause, resume, and unshare devices
+- A problems banner surfaces offline instances, folder errors, and disconnected devices at a glance
+- Runs behind Home Assistant Ingress, with an optional directly-exposed port (protected by its own Basic Auth) for access from outside Home Assistant
 
 ## Installation
 
@@ -25,6 +26,7 @@ multiple [Syncthing](https://syncthing.net/) instances from one place.
 |--------|-------------|
 | `log_level` | Backend log verbosity (`info` recommended) |
 | `instances` | Optional list of Syncthing instances to pre-configure |
+| `basic_auth_username` / `basic_auth_password` | Credentials required to reach Replicarr via its directly-exposed port (not Ingress). Leave both blank to keep direct access disabled. |
 
 Each instance under `instances` needs `name`, `url`, and `api_key`.
 Additional instances can be added at runtime through the dashboard.

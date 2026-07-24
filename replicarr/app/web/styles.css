@@ -565,6 +565,7 @@ body {
 .alert-error { background: var(--red-lt);   color: #991b1b; }
 .alert-ok    { background: var(--green-lt); color: #065f46; }
 .alert-info  { background: var(--accent-lt); color: var(--accent-dk); }
+.problem-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 
 /* ── Steps (push flow) ─────────────────────────────────────────────────────── */
 .step-list { list-style: none; }

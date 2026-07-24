@@ -1,5 +1,5 @@
 name: Replicarr
-version: "0.1.2"
+version: "0.2.0"
 slug: replicarr
 description: A dashboard to manage and sync multiple Syncthing instances from one place.
 url: https://github.com/Fully-Local-Admin/replicarr
@@ -12,7 +12,7 @@ ingress: true
 ingress_port: 8099
 panel_icon: mdi:sync
 panel_title: Replicarr
-apparmor: false
+apparmor: true
 ports:
   8099/tcp: 8099
 ports_description:
@@ -20,9 +20,13 @@ ports_description:
 options:
   log_level: info
   instances: []
+  basic_auth_username: ""
+  basic_auth_password: ""
 schema:
   log_level: "list(trace|debug|info|notice|warning|error|fatal)?"
   instances:
     - name: str
       url: url
       api_key: password
+  basic_auth_username: "str?"
+  basic_auth_password: "password?"

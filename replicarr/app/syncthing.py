@@ -103,6 +103,18 @@ async def get_config_folder(
         return r.json()
 
 
+async def delete_config_folder(url: str, api_key: str, folder_id: str) -> None:
+    async with _client(url, api_key) as c:
+        r = await c.delete(f"/rest/config/folders/{folder_id}")
+        r.raise_for_status()
+
+
+async def delete_config_device(url: str, api_key: str, device_id: str) -> None:
+    async with _client(url, api_key) as c:
+        r = await c.delete(f"/rest/config/devices/{device_id}")
+        r.raise_for_status()
+
+
 async def get_config_device(
     url: str, api_key: str, device_id: str
 ) -> dict[str, Any] | None:

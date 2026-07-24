@@ -6,11 +6,18 @@ bashio::log.info "Starting Replicarr..."
 
 # Read add-on options
 export LOG_LEVEL="$(bashio::config 'log_level' 'info')"
+export BASIC_AUTH_USERNAME="$(bashio::config 'basic_auth_username' '')"
+export BASIC_AUTH_PASSWORD="$(bashio::config 'basic_auth_password' '')"
 
 # Write config-defined instances to a temp file for the app to merge on startup
 bashio::config 'instances' > /tmp/config_instances.json 2>/dev/null || echo '[]' > /tmp/config_instances.json
 
 bashio::log.info "Log level: ${LOG_LEVEL}"
+if [ -n "${BASIC_AUTH_USERNAME}" ] && [ -n "${BASIC_AUTH_PASSWORD}" ]; then
+    bashio::log.info "Direct (non-Ingress) access is enabled with Basic Auth."
+else
+    bashio::log.warning "basic_auth_username/basic_auth_password not set — direct access outside Ingress will be refused."
+fi
 
 exec uvicorn main:app \
     --host 0.0.0.0 \

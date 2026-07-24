@@ -8,9 +8,11 @@ The browser talks only to /api/* and the static web/ directory.
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
+import secrets
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -18,7 +20,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -30,12 +32,35 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "info").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("replicarr")
 
-# ── Speed sampler state ────────────────────────────────────────────────────────
+# ── Direct-access Basic Auth ────────────────────────────────────────────────────
+# Requests that arrive via Home Assistant Ingress are already authenticated by
+# HA (identified by the X-Ingress-Path header, which only the Supervisor's
+# proxy sets). Requests hitting the add-on's directly-published port carry no
+# such header and no HA session, so they're gated behind Basic Auth instead.
+BASIC_AUTH_USERNAME = os.environ.get("BASIC_AUTH_USERNAME", "")
+BASIC_AUTH_PASSWORD = os.environ.get("BASIC_AUTH_PASSWORD", "")
+
+# ── Shared status/transfers cache ───────────────────────────────────────────────
+# A single background refresh cycle owns all outbound Syncthing REST calls.
+# /api/status, /api/transfers, and /api/stream all read from these caches
+# instead of independently re-fetching from every instance on every request —
+# previously each browser tab polling every 3s multiplied the load on every
+# configured Syncthing instance on top of this same sampler's own cycle.
+_status_cache: list[dict[str, Any]] = []
+_transfers_cache: dict[str, Any] = {
+    "instances": [],
+    "overall": {
+        "totalBytes": 0, "needBytes": 0, "percent": 100,
+        "inSpeedBytesPerSec": 0.0, "outSpeedBytesPerSec": 0.0, "etaSeconds": None,
+    },
+}
+_sampler_task: asyncio.Task | None = None
+REFRESH_INTERVAL_SECONDS = 2
+
 # { instance_id: { "ts": float, "inBytes": int, "outBytes": int } }
 _byte_samples: dict[str, dict[str, Any]] = {}
 # { instance_id + folder_id: { "ts": float, "needBytes": int } }
 _folder_samples: dict[str, dict[str, Any]] = {}
-_sampler_task: asyncio.Task | None = None
 
 EWMA_ALPHA = 0.3  # smoothing factor for byte-rate EWMA
 # { key: smoothed_rate_bytes_per_sec }
@@ -49,48 +74,166 @@ def _ewma(key: str, new_rate: float) -> float:
     return smoothed
 
 
+async def _refresh_all() -> None:
+    """Fetches fresh data for every instance and rebuilds both caches."""
+    global _status_cache, _transfers_cache
+    instances = store.load_instances()
+    results = await asyncio.gather(*[_refresh_instance(i) for i in instances])
+
+    _status_cache = [r["status"] for r in results]
+
+    overall_need = overall_total = 0
+    overall_in_speed = overall_out_speed = 0.0
+    transfer_instances = []
+    for r in results:
+        t = r["transfers"]
+        overall_in_speed += t.get("_in_speed", 0.0)
+        overall_out_speed += t.get("_out_speed", 0.0)
+        for f in t.get("folders", []):
+            overall_need += f.get("needBytes", 0)
+            overall_total += f.get("totalBytes", 0)
+        transfer_instances.append({k: v for k, v in t.items() if not k.startswith("_")})
+
+    overall_pct = round(
+        ((overall_total - overall_need) / overall_total * 100) if overall_total else 100, 1
+    )
+    overall_eta = (
+        int(overall_need / overall_in_speed) if overall_in_speed > 0 and overall_need > 0 else None
+    )
+    _transfers_cache = {
+        "instances": transfer_instances,
+        "overall": {
+            "totalBytes": overall_total,
+            "needBytes": overall_need,
+            "percent": overall_pct,
+            "inSpeedBytesPerSec": round(overall_in_speed, 1),
+            "outSpeedBytesPerSec": round(overall_out_speed, 1),
+            "etaSeconds": overall_eta,
+        },
+    }
+
+
+async def _refresh_instance(inst: dict) -> dict[str, Any]:
+    url, key, iid = inst["url"], inst["api_key"], inst["id"]
+    base = {"id": iid, "name": inst["name"], "source": inst["source"]}
+    now = time.monotonic()
+    try:
+        system_status, folders, devices, connections = await asyncio.gather(
+            st.get_system_status(url, key),
+            st.get_config_folders(url, key),
+            st.get_config_devices(url, key),
+            st.get_system_connections(url, key),
+        )
+        my_id = system_status.get("myID", "")
+        conn_map = connections.get("connections", {})
+
+        total = connections.get("total", {})
+        in_b, out_b = total.get("inBytesTotal", 0), total.get("outBytesTotal", 0)
+        prev = _byte_samples.get(iid)
+        if prev and now > prev["ts"]:
+            dt = now - prev["ts"]
+            _ewma(f"{iid}:in", max(0, (in_b - prev["inBytes"]) / dt))
+            _ewma(f"{iid}:out", max(0, (out_b - prev["outBytes"]) / dt))
+        _byte_samples[iid] = {"ts": now, "inBytes": in_b, "outBytes": out_b}
+
+        folder_results = await asyncio.gather(*[
+            _refresh_folder(url, key, f, iid, now) for f in folders
+        ])
+
+        return {
+            "status": {
+                **base,
+                "online": True,
+                "myID": my_id,
+                "version": system_status.get("version"),
+                "folders": [fr["status"] for fr in folder_results],
+                "devices": [_device_info(d, conn_map) for d in devices],
+            },
+            "transfers": {
+                "instanceId": iid,
+                "folders": [fr["transfer"] for fr in folder_results],
+                "_in_speed": _smoothed_rates.get(f"{iid}:in", 0.0),
+                "_out_speed": _smoothed_rates.get(f"{iid}:out", 0.0),
+            },
+        }
+    except httpx.HTTPStatusError as e:
+        logger.debug("Refresh failed for instance %s: HTTP %s", iid, e.response.status_code)
+        return {
+            "status": {**base, "online": False, "error": f"HTTP {e.response.status_code}"},
+            "transfers": {"instanceId": iid, "folders": [], "offline": True, "_in_speed": 0.0, "_out_speed": 0.0},
+        }
+    except Exception as e:
+        logger.debug("Refresh failed for instance %s: %s", iid, e)
+        return {
+            "status": {**base, "online": False, "error": str(e)},
+            "transfers": {"instanceId": iid, "folders": [], "offline": True, "_in_speed": 0.0, "_out_speed": 0.0},
+        }
+
+
+async def _refresh_folder(
+    url: str, key: str, folder: dict, iid: str, now: float
+) -> dict[str, Any]:
+    fid = folder["id"]
+    fkey = f"{iid}:{fid}"
+    try:
+        dbs = await st.get_db_status(url, key, fid)
+        state = dbs.get("state", "unknown")
+        global_bytes = dbs.get("globalBytes", 0)
+        need_bytes = dbs.get("needBytes", 0)
+        in_sync = dbs.get("inSyncBytes", 0)
+        pct = round((in_sync / global_bytes * 100) if global_bytes else 100, 1)
+
+        prev_f = _folder_samples.get(fkey)
+        if prev_f and now > prev_f["ts"]:
+            dt = now - prev_f["ts"]
+            delta = prev_f["needBytes"] - need_bytes  # falling = progress
+            _ewma(f"{fkey}:speed", max(0, delta / dt))
+        _folder_samples[fkey] = {"ts": now, "needBytes": need_bytes}
+        speed = _smoothed_rates.get(f"{fkey}:speed", 0.0)
+        eta = int(need_bytes / speed) if speed > 0 and need_bytes > 0 else None
+
+        return {
+            "status": {
+                "id": fid,
+                "label": folder.get("label", fid),
+                "path": folder.get("path", ""),
+                "paused": folder.get("paused", False),
+                "state": state,
+                "globalBytes": global_bytes,
+                "needBytes": need_bytes,
+                "inSyncBytes": in_sync,
+                "completion": pct,
+                "pullErrors": dbs.get("pullErrors", 0),
+                "devices": [d["deviceID"] for d in folder.get("devices", [])],
+            },
+            "transfer": {
+                "id": fid,
+                "label": folder.get("label", fid),
+                "paused": folder.get("paused", False),
+                "state": state,
+                "percent": pct,
+                "totalBytes": global_bytes,
+                "needBytes": need_bytes,
+                "speedBytesPerSec": round(speed, 1),
+                "speedApproximate": True,
+                "etaSeconds": eta,
+            },
+        }
+    except Exception as e:
+        logger.debug("Refresh failed for folder %s: %s", fkey, e)
+        return {
+            "status": {"id": fid, "label": folder.get("label", fid), "paused": folder.get("paused", False), "error": str(e)},
+            "transfer": {"id": fid, "error": str(e)},
+        }
+
+
 async def _sample_loop() -> None:
     while True:
-        await asyncio.sleep(2)
-        instances = store.load_instances()
-        for inst in instances:
-            iid = inst["id"]
-            url, key = inst["url"], inst["api_key"]
-            try:
-                conn = await st.get_system_connections(url, key)
-                total = conn.get("total", {})
-                in_b = total.get("inBytesTotal", 0)
-                out_b = total.get("outBytesTotal", 0)
-                now = time.monotonic()
-                prev = _byte_samples.get(iid)
-                if prev:
-                    dt = now - prev["ts"]
-                    if dt > 0:
-                        in_rate = (in_b - prev["inBytes"]) / dt
-                        out_rate = (out_b - prev["outBytes"]) / dt
-                        _ewma(f"{iid}:in", max(0, in_rate))
-                        _ewma(f"{iid}:out", max(0, out_rate))
-                _byte_samples[iid] = {"ts": now, "inBytes": in_b, "outBytes": out_b}
-
-                folders = await st.get_config_folders(url, key)
-                for fdr in folders:
-                    fid = fdr["id"]
-                    fkey = f"{iid}:{fid}"
-                    try:
-                        dbs = await st.get_db_status(url, key, fid)
-                        need = dbs.get("needBytes", 0)
-                        now2 = time.monotonic()
-                        prev_f = _folder_samples.get(fkey)
-                        if prev_f:
-                            dt2 = now2 - prev_f["ts"]
-                            if dt2 > 0:
-                                delta = prev_f["needBytes"] - need  # falling = progress
-                                _ewma(f"{fkey}:speed", max(0, delta / dt2))
-                        _folder_samples[fkey] = {"ts": now2, "needBytes": need}
-                    except Exception:
-                        pass
-            except Exception:
-                pass
+        await asyncio.sleep(REFRESH_INTERVAL_SECONDS)
+        try:
+            await _refresh_all()
+        except Exception:
+            logger.debug("Refresh cycle failed", exc_info=True)
 
 
 # ── Lifespan ───────────────────────────────────────────────────────────────────
@@ -106,10 +249,11 @@ async def lifespan(app: FastAPI):
             if raw and raw != "null":
                 config_instances = json.loads(raw)
         except Exception:
-            pass
+            logger.warning("Could not parse %s — ignoring config-defined instances", cfg_path)
     store.merge_config_instances(config_instances)
     logger.info("Replicarr started. Instances loaded.")
 
+    await _refresh_all()  # populate the cache before serving the first request
     _sampler_task = asyncio.create_task(_sample_loop())
     yield
     _sampler_task.cancel()
@@ -118,19 +262,47 @@ async def lifespan(app: FastAPI):
 # ── App ────────────────────────────────────────────────────────────────────────
 app = FastAPI(title="Replicarr", lifespan=lifespan)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+
+def _unauthorized(detail: str, challenge: bool) -> JSONResponse:
+    headers = {"WWW-Authenticate": 'Basic realm="Replicarr"'} if challenge else None
+    return JSONResponse({"detail": detail}, status_code=401 if challenge else 403, headers=headers)
 
 
 @app.middleware("http")
-async def ingress_root_path(request: Request, call_next):
+async def ingress_or_basic_auth(request: Request, call_next):
     ingress_path = request.headers.get("X-Ingress-Path", "")
     if ingress_path:
+        # Trusted: only the Supervisor's Ingress proxy sets this header, and
+        # HA has already authenticated the user's session to get here.
         request.scope["root_path"] = ingress_path
+        return await call_next(request)
+
+    if request.url.path == "/health":
+        return await call_next(request)
+
+    if not BASIC_AUTH_USERNAME or not BASIC_AUTH_PASSWORD:
+        return _unauthorized(
+            "Direct access is disabled. Set 'basic_auth_username' and "
+            "'basic_auth_password' in the add-on configuration to allow "
+            "access outside Home Assistant Ingress.",
+            challenge=False,
+        )
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Basic "):
+        return _unauthorized("Authentication required.", challenge=True)
+
+    try:
+        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
+        user, _, pw = decoded.partition(":")
+    except Exception:
+        return _unauthorized("Invalid Authorization header.", challenge=True)
+
+    user_ok = secrets.compare_digest(user, BASIC_AUTH_USERNAME)
+    pw_ok = secrets.compare_digest(pw, BASIC_AUTH_PASSWORD)
+    if not (user_ok and pw_ok):
+        return _unauthorized("Invalid credentials.", challenge=True)
+
     return await call_next(request)
 
 
@@ -213,6 +385,7 @@ async def list_instances():
 async def create_instance(body: InstanceCreate):
     try:
         inst = store.add_instance(body.name, body.url, body.api_key)
+        await _refresh_all()
         return _redact(inst)
     except ValueError as e:
         raise HTTPException(400, str(e))
@@ -222,6 +395,7 @@ async def create_instance(body: InstanceCreate):
 async def update_instance(inst_id: str, body: InstanceUpdate):
     try:
         inst = store.update_instance(inst_id, body.name, body.url, body.api_key)
+        await _refresh_all()
         return _redact(inst)
     except PermissionError as e:
         raise HTTPException(403, str(e))
@@ -233,6 +407,7 @@ async def update_instance(inst_id: str, body: InstanceUpdate):
 async def delete_instance(inst_id: str):
     try:
         store.delete_instance(inst_id)
+        await _refresh_all()
     except PermissionError as e:
         raise HTTPException(403, str(e))
     except KeyError as e:
@@ -276,78 +451,8 @@ async def test_instance(inst_id: str):
 # ── Status / overview ──────────────────────────────────────────────────────────
 @app.get("/api/status")
 async def get_status():
-    """
-    Returns per-instance status: folders, devices, sync state, sizes.
-    Fan-out is concurrent per instance; an offline instance returns an error block.
-    """
-    instances = store.load_instances()
-    results = await asyncio.gather(*[_fetch_instance_status(i) for i in instances])
-    return results
-
-
-async def _fetch_instance_status(inst: dict) -> dict:
-    url, key, iid = inst["url"], inst["api_key"], inst["id"]
-    base = {"id": iid, "name": inst["name"], "source": inst["source"]}
-    try:
-        system_status, folders, devices, connections = await asyncio.gather(
-            st.get_system_status(url, key),
-            st.get_config_folders(url, key),
-            st.get_config_devices(url, key),
-            st.get_system_connections(url, key),
-        )
-        my_id = system_status.get("myID", "")
-        conn_map = connections.get("connections", {})
-
-        folder_data = await asyncio.gather(*[
-            _fetch_folder_status(url, key, f, my_id, conn_map)
-            for f in folders
-        ])
-
-        return {
-            **base,
-            "online": True,
-            "myID": my_id,
-            "version": system_status.get("version"),
-            "folders": folder_data,
-            "devices": [_device_info(d, conn_map) for d in devices],
-        }
-    except httpx.HTTPStatusError as e:
-        return {**base, "online": False, "error": f"HTTP {e.response.status_code}"}
-    except Exception as e:
-        return {**base, "online": False, "error": str(e)}
-
-
-async def _fetch_folder_status(
-    url: str, key: str, folder: dict, my_id: str, conn_map: dict
-) -> dict:
-    fid = folder["id"]
-    try:
-        dbs = await st.get_db_status(url, key, fid)
-        state = dbs.get("state", "unknown")
-        global_bytes = dbs.get("globalBytes", 0)
-        need_bytes = dbs.get("needBytes", 0)
-        in_sync = dbs.get("inSyncBytes", 0)
-        pct = round((in_sync / global_bytes * 100) if global_bytes else 100, 1)
-        return {
-            "id": fid,
-            "label": folder.get("label", fid),
-            "path": folder.get("path", ""),
-            "paused": folder.get("paused", False),
-            "state": state,
-            "globalBytes": global_bytes,
-            "needBytes": need_bytes,
-            "inSyncBytes": in_sync,
-            "completion": pct,
-            "pullErrors": dbs.get("pullErrors", 0),
-            "devices": [d["deviceID"] for d in folder.get("devices", [])],
-        }
-    except Exception as e:
-        return {
-            "id": fid,
-            "label": folder.get("label", fid),
-            "paused": folder.get("paused", False),
-            "error": str(e),
-        }
+    """Per-instance status: folders, devices, sync state, sizes — served from cache."""
+    return _status_cache
 
 
 def _device_info(device: dict, conn_map: dict) -> dict:
@@ -367,81 +472,34 @@ def _device_info(device: dict, conn_map: dict) -> dict:
 # ── Transfer metrics ───────────────────────────────────────────────────────────
 @app.get("/api/transfers")
 async def get_transfers():
-    instances = store.load_instances()
-    inst_results = await asyncio.gather(*[_fetch_instance_transfers(i) for i in instances])
+    return _transfers_cache
 
-    overall_need = 0
-    overall_total = 0
-    overall_in_speed = 0.0
-    overall_out_speed = 0.0
-    for ir in inst_results:
-        overall_in_speed  += ir.get("_in_speed", 0.0)
-        overall_out_speed += ir.get("_out_speed", 0.0)
-        for f in ir.get("folders", []):
-            overall_need  += f.get("needBytes", 0)
-            overall_total += f.get("totalBytes", 0)
 
-    # Strip internal speed fields before returning
-    result = [{k: v for k, v in ir.items() if not k.startswith("_")} for ir in inst_results]
+# ── Live updates ────────────────────────────────────────────────────────────────
+@app.get("/api/stream")
+async def stream(request: Request):
+    """
+    Server-Sent Events feed of the same data as /api/status + /api/transfers,
+    pushed on every refresh cycle so the frontend doesn't need to poll.
+    """
+    async def event_generator():
+        last_payload = None
+        while True:
+            if await request.is_disconnected():
+                break
+            payload = json.dumps({"status": _status_cache, "transfers": _transfers_cache})
+            if payload != last_payload:
+                yield f"data: {payload}\n\n"
+                last_payload = payload
+            else:
+                yield ": keep-alive\n\n"
+            await asyncio.sleep(REFRESH_INTERVAL_SECONDS)
 
-    overall_pct = round(
-        ((overall_total - overall_need) / overall_total * 100) if overall_total else 100, 1
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
-    overall_eta = (
-        int(overall_need / overall_in_speed) if overall_in_speed > 0 and overall_need > 0 else None
-    )
-    return {
-        "instances": result,
-        "overall": {
-            "totalBytes": overall_total,
-            "needBytes": overall_need,
-            "percent": overall_pct,
-            "inSpeedBytesPerSec": round(overall_in_speed, 1),
-            "outSpeedBytesPerSec": round(overall_out_speed, 1),
-            "etaSeconds": overall_eta,
-        },
-    }
-
-
-async def _fetch_instance_transfers(inst: dict) -> dict:
-    iid = inst["id"]
-    url, key = inst["url"], inst["api_key"]
-    in_speed  = _smoothed_rates.get(f"{iid}:in", 0.0)
-    out_speed = _smoothed_rates.get(f"{iid}:out", 0.0)
-    try:
-        folders = await st.get_config_folders(url, key)
-        folder_statuses = await asyncio.gather(*[
-            st.get_db_status(url, key, fdr["id"]) for fdr in folders
-        ], return_exceptions=True)
-
-        folder_metrics = []
-        for fdr, dbs in zip(folders, folder_statuses):
-            fid = fdr["id"]
-            fkey = f"{iid}:{fid}"
-            if isinstance(dbs, Exception):
-                folder_metrics.append({"id": fid, "error": str(dbs)})
-                continue
-            global_b = dbs.get("globalBytes", 0)
-            need_b   = dbs.get("needBytes", 0)
-            in_sync  = dbs.get("inSyncBytes", 0)
-            pct      = round((in_sync / global_b * 100) if global_b else 100, 1)
-            speed    = _smoothed_rates.get(f"{fkey}:speed", 0.0)
-            eta      = int(need_b / speed) if speed > 0 and need_b > 0 else None
-            folder_metrics.append({
-                "id": fid,
-                "label": fdr.get("label", fid),
-                "paused": fdr.get("paused", False),
-                "state": dbs.get("state", "unknown"),
-                "percent": pct,
-                "totalBytes": global_b,
-                "needBytes": need_b,
-                "speedBytesPerSec": round(speed, 1),
-                "speedApproximate": True,
-                "etaSeconds": eta,
-            })
-        return {"instanceId": iid, "folders": folder_metrics, "_in_speed": in_speed, "_out_speed": out_speed}
-    except Exception:
-        return {"instanceId": iid, "folders": [], "offline": True, "_in_speed": 0.0, "_out_speed": 0.0}
 
 
 # ── Pause / resume folder ─────────────────────────────────────────────────────
@@ -450,6 +508,7 @@ async def pause_folder(inst_id: str, folder_id: str):
     inst = _get_instance(inst_id)
     try:
         await st.pause_folder(inst["url"], inst["api_key"], folder_id)
+        await _refresh_all()
         return {"ok": True}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -460,7 +519,21 @@ async def resume_folder(inst_id: str, folder_id: str):
     inst = _get_instance(inst_id)
     try:
         await st.resume_folder(inst["url"], inst["api_key"], folder_id)
+        await _refresh_all()
         return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete("/api/folders/{inst_id}/{folder_id}", status_code=204)
+async def remove_folder(inst_id: str, folder_id: str):
+    """Removes the folder from Syncthing's config. Files on disk are untouched."""
+    inst = _get_instance(inst_id)
+    try:
+        await st.delete_config_folder(inst["url"], inst["api_key"], folder_id)
+        await _refresh_all()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(e.response.status_code, e.response.text)
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -471,6 +544,7 @@ async def pause_device(inst_id: str, device_id: str):
     inst = _get_instance(inst_id)
     try:
         await st.pause_device(inst["url"], inst["api_key"], device_id)
+        await _refresh_all()
         return {"ok": True}
     except Exception as e:
         raise HTTPException(500, str(e))
@@ -481,7 +555,28 @@ async def resume_device(inst_id: str, device_id: str):
     inst = _get_instance(inst_id)
     try:
         await st.resume_device(inst["url"], inst["api_key"], device_id)
+        await _refresh_all()
         return {"ok": True}
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+
+@app.delete("/api/devices/{inst_id}/{device_id}", status_code=204)
+async def remove_device(inst_id: str, device_id: str):
+    """Unshares the device from every folder on this instance, then removes it."""
+    inst = _get_instance(inst_id)
+    url, key = inst["url"], inst["api_key"]
+    try:
+        folders = await st.get_config_folders(url, key)
+        for fdr in folders:
+            devices = fdr.get("devices", [])
+            if any(d["deviceID"] == device_id for d in devices):
+                fdr["devices"] = [d for d in devices if d["deviceID"] != device_id]
+                await st.put_config_folder(url, key, fdr["id"], fdr)
+        await st.delete_config_device(url, key, device_id)
+        await _refresh_all()
+    except httpx.HTTPStatusError as e:
+        raise HTTPException(e.response.status_code, e.response.text)
     except Exception as e:
         raise HTTPException(500, str(e))
 
@@ -502,6 +597,7 @@ async def add_folder(inst_id: str, body: FolderCreate):
         }
         await st.put_config_folder(url, key, body.folder_id, folder_cfg)
         rr = await st.get_restart_required(url, key)
+        await _refresh_all()
         return {"ok": True, "restartRequired": rr.get("requiresRestart", False)}
     except httpx.HTTPStatusError as e:
         raise HTTPException(e.response.status_code, e.response.text)
@@ -514,14 +610,37 @@ async def add_folder(inst_id: str, body: FolderCreate):
 async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
     """
     5-step folder-sharing flow from source (inst_id) to target.
-    Returns a step-by-step result list.
+    Each step that mutates a remote Syncthing instance registers a matching
+    "undo" action; if a later step fails, everything undoable so far is rolled
+    back (in reverse order, so folder-share references are removed before the
+    device entries they depend on) and the rollback outcome is reported
+    alongside the steps, so a failed push doesn't leave either instance
+    half-configured with only a raw error message to act on.
     """
     source_inst = _get_instance(inst_id)
     target_inst = _get_instance(body.target_instance_id)
     steps: list[dict] = []
+    undo_actions: list[tuple[str, Any]] = []
+
+    async def _rollback() -> list[dict]:
+        results = []
+        for description, action in reversed(undo_actions):
+            try:
+                await action()
+                results.append({"description": description, "ok": True})
+            except Exception as e:
+                results.append({"description": description, "ok": False, "error": str(e)})
+        return results
+
+    async def _fail(step: int, description: str, error: str) -> dict:
+        steps.append({"step": step, "description": description, "ok": False, "error": error})
+        result = {"ok": False, "steps": steps}
+        if undo_actions:
+            result["rollback"] = await _rollback()
+        return result
 
     try:
-        # Step 1: Get device IDs
+        # Step 1: Get device IDs (no side effects — nothing to roll back if this fails)
         src_status = await st.get_system_status(source_inst["url"], source_inst["api_key"])
         tgt_status = await st.get_system_status(target_inst["url"], target_inst["api_key"])
         src_id = src_status["myID"]
@@ -529,8 +648,7 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
         steps.append({"step": 1, "description": "Got device IDs", "ok": True,
                        "sourceDeviceID": src_id, "targetDeviceID": tgt_id})
     except Exception as e:
-        steps.append({"step": 1, "description": "Get device IDs", "ok": False, "error": str(e)})
-        return {"ok": False, "steps": steps}
+        return await _fail(1, "Get device IDs", str(e))
 
     try:
         # Step 2a: Add target as device on source
@@ -541,10 +659,13 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
                        "autoAcceptFolders": False, "maxSendKbps": 0, "maxRecvKbps": 0,
                        "ignoredFolders": [], "maxRequestKiB": 0, "untrustedIntroducer": False}
         await st.put_config_device(source_inst["url"], source_inst["api_key"], tgt_id, tgt_dev_cfg)
+        undo_actions.append((
+            "Remove target device from source",
+            lambda: st.delete_config_device(source_inst["url"], source_inst["api_key"], tgt_id),
+        ))
         steps.append({"step": 2, "description": "Registered target device on source", "ok": True})
     except Exception as e:
-        steps.append({"step": 2, "description": "Register target on source", "ok": False, "error": str(e)})
-        return {"ok": False, "steps": steps}
+        return await _fail(2, "Register target on source", str(e))
 
     try:
         # Step 2b: Add source as device on target
@@ -555,10 +676,13 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
                        "autoAcceptFolders": False, "maxSendKbps": 0, "maxRecvKbps": 0,
                        "ignoredFolders": [], "maxRequestKiB": 0, "untrustedIntroducer": False}
         await st.put_config_device(target_inst["url"], target_inst["api_key"], src_id, src_dev_cfg)
+        undo_actions.append((
+            "Remove source device from target",
+            lambda: st.delete_config_device(target_inst["url"], target_inst["api_key"], src_id),
+        ))
         steps.append({"step": 2, "description": "Registered source device on target", "ok": True})
     except Exception as e:
-        steps.append({"step": 2, "description": "Register source on target", "ok": False, "error": str(e)})
-        return {"ok": False, "steps": steps}
+        return await _fail(2, "Register source on target", str(e))
 
     try:
         # Step 3: Add target to folder's device list on source (read-modify-write)
@@ -569,10 +693,16 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
                 {"deviceID": tgt_id, "introducedBy": "", "encryptionPassword": ""}
             )
             await st.put_config_folder(source_inst["url"], source_inst["api_key"], folder_id, folder_cfg)
+
+            async def _unshare_from_source():
+                cfg = await st.get_config_folder(source_inst["url"], source_inst["api_key"], folder_id)
+                cfg["devices"] = [d for d in cfg.get("devices", []) if d["deviceID"] != tgt_id]
+                await st.put_config_folder(source_inst["url"], source_inst["api_key"], folder_id, cfg)
+
+            undo_actions.append(("Unshare folder from target on source", _unshare_from_source))
         steps.append({"step": 3, "description": "Shared folder with target device on source", "ok": True})
     except Exception as e:
-        steps.append({"step": 3, "description": "Share folder on source", "ok": False, "error": str(e)})
-        return {"ok": False, "steps": steps}
+        return await _fail(3, "Share folder on source", str(e))
 
     try:
         # Step 4: Recreate folder on target with same ID
@@ -592,11 +722,10 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
         await st.put_config_folder(target_inst["url"], target_inst["api_key"], folder_id, new_folder)
         steps.append({"step": 4, "description": "Created folder on target", "ok": True})
     except Exception as e:
-        steps.append({"step": 4, "description": "Create folder on target", "ok": False, "error": str(e)})
-        return {"ok": False, "steps": steps}
+        return await _fail(4, "Create folder on target", str(e))
 
     try:
-        # Step 5: Check restart required on both
+        # Step 5: Check restart required on both (read-only — no rollback needed)
         rr_src = await st.get_restart_required(source_inst["url"], source_inst["api_key"])
         rr_tgt = await st.get_restart_required(target_inst["url"], target_inst["api_key"])
         steps.append({
@@ -609,6 +738,7 @@ async def push_folder(inst_id: str, folder_id: str, body: PushRequest):
     except Exception as e:
         steps.append({"step": 5, "description": "Check restart", "ok": False, "error": str(e)})
 
+    await _refresh_all()
     return {"ok": True, "steps": steps}
 
 

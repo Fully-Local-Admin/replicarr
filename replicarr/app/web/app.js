@@ -37,8 +37,16 @@ function fmtEta(s) {
 function esc(v) {
   return String(v ?? "")
     .replace(/&/g, "&amp;").replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
+// Folder/device IDs (and, indirectly, folder labels or device names) can
+// originate from a remote Syncthing peer, not just this add-on's own store.
+// esc() alone is not enough to safely embed them inside inline onclick="..."
+// handlers: the browser HTML-decodes attribute text *before* compiling it as
+// JS, so an escaped quote just becomes a literal quote again right where the
+// JS parser reads it, breaking out of the string. These values must instead
+// be passed via data-* attributes and read back with `this.dataset`.
 
 // ── Chip ──────────────────────────────────────────────────────────────────────
 function chipClass(state, paused) {
@@ -75,7 +83,11 @@ let transferData  = null; // from /api/transfers
 let selectedInstId  = null;
 let selectedFolderId = null;
 
-// ── Polling ───────────────────────────────────────────────────────────────────
+// ── Live updates ──────────────────────────────────────────────────────────────
+// poll() is a one-shot fetch used for the initial paint and right after a
+// mutating action (pause/push/etc.), so the UI doesn't wait for the next
+// server-sent event. Ongoing updates come from the /api/stream SSE feed
+// started by startStream() — not a client-side timer.
 async function poll() {
   try {
     [statusData, transferData] = await Promise.all([
@@ -86,6 +98,23 @@ async function poll() {
   } catch (e) {
     console.warn("Poll error:", e);
   }
+}
+
+let _stream = null;
+function startStream() {
+  _stream?.close();
+  _stream = new EventSource("api/stream");
+  _stream.onmessage = (ev) => {
+    try {
+      const data = JSON.parse(ev.data);
+      statusData = data.status;
+      transferData = data.transfers;
+      applyPoll();
+    } catch (e) {
+      console.warn("Stream message error:", e);
+    }
+  };
+  // EventSource reconnects automatically on drop/error — nothing to do here.
 }
 
 function applyPoll() {
@@ -136,8 +165,40 @@ function filteredStatus() {
 
 // ── Overview tab ──────────────────────────────────────────────────────────────
 function renderOverview() {
+  renderProblemsBanner();
   renderQuickCards();
   renderFolderTable();
+}
+
+function renderProblemsBanner() {
+  const el = $("#problems-banner");
+  const offlineInstances = statusData.filter(i => i.online === false);
+  const folderErrors = statusData.flatMap(i =>
+    (i.folders || []).filter(f => f.error || f.state === "error" || f.pullErrors)
+      .map(f => ({ inst: i, folder: f }))
+  );
+  const disconnectedDevices = statusData.flatMap(i =>
+    (i.devices || []).filter(d => !d.paused && !d.connected)
+  );
+
+  const parts = [];
+  if (offlineInstances.length) {
+    parts.push(`<span class="problem-link" onclick="applyFilter('offline'); switchTab('overview')">${offlineInstances.length} instance${offlineInstances.length !== 1 ? "s" : ""} offline</span>`);
+  }
+  if (folderErrors.length) {
+    parts.push(`${folderErrors.length} folder${folderErrors.length !== 1 ? "s" : ""} with errors`);
+  }
+  if (disconnectedDevices.length) {
+    parts.push(`${disconnectedDevices.length} device${disconnectedDevices.length !== 1 ? "s" : ""} disconnected`);
+  }
+
+  if (!parts.length) {
+    el.classList.add("hidden");
+    el.innerHTML = "";
+    return;
+  }
+  el.classList.remove("hidden");
+  el.innerHTML = `<div class="alert alert-error problems-banner">⚠ ${parts.join(" · ")}</div>`;
 }
 
 function renderQuickCards() {
@@ -226,7 +287,7 @@ function renderFolderTable() {
     const selCls  = selectedFolderId === f.id ? "selected" : "";
     const chipHtml = chip(f.state, f.paused);
 
-    return `<tr class="${selCls}" onclick="selectFolder('${esc(inst.id)}', '${esc(f.id)}')">
+    return `<tr class="${selCls}" data-folder-id="${esc(f.id)}" onclick="selectFolder('${esc(inst.id)}', this.dataset.folderId)">
       <td>
         <div class="td-name">
           <div class="td-icon ${f.paused ? "paused" : f.state === "syncing" ? "syncing" : ""}">
@@ -249,9 +310,10 @@ function renderFolderTable() {
       <td>
         <div class="flex gap-6 justify-end">
           ${f.paused
-            ? `<button class="btn btn-ghost btn-sm" title="Resume folder" onclick="actFolder(event,'resume','${esc(inst.id)}','${esc(f.id)}')">Resume</button>`
-            : `<button class="btn btn-ghost btn-sm" title="Pause folder — stops entire folder sync" onclick="actFolder(event,'pause','${esc(inst.id)}','${esc(f.id)}')">Pause</button>`}
-          <button class="btn btn-ghost btn-sm" onclick="openPushModal(event,'${esc(inst.id)}','${esc(f.id)}')">Push →</button>
+            ? `<button class="btn btn-ghost btn-sm" title="Resume folder" onclick="actFolder(event,'resume','${esc(inst.id)}',this.closest('tr').dataset.folderId)">Resume</button>`
+            : `<button class="btn btn-ghost btn-sm" title="Pause folder — stops entire folder sync" onclick="actFolder(event,'pause','${esc(inst.id)}',this.closest('tr').dataset.folderId)">Pause</button>`}
+          <button class="btn btn-ghost btn-sm" onclick="openPushModal(event,'${esc(inst.id)}',this.closest('tr').dataset.folderId)">Push →</button>
+          <button class="btn btn-danger btn-sm" title="Remove folder from Syncthing" onclick="removeFolder(event,'${esc(inst.id)}',this.closest('tr').dataset.folderId)">Remove</button>
         </div>
       </td>
     </tr>`;
@@ -332,7 +394,7 @@ function renderInstanceDetail(inst) {
 
     <div class="detail-tab-panel active" id="dt-folders">
       ${folders.length ? folders.map(f => `
-        <div class="detail-folder-row" onclick="selectFolder('${esc(inst.id)}','${esc(f.id)}'); renderFolderTable();" style="cursor:pointer">
+        <div class="detail-folder-row" data-folder-id="${esc(f.id)}" onclick="selectFolder('${esc(inst.id)}',this.dataset.folderId); renderFolderTable();" style="cursor:pointer">
           <div class="detail-folder-icon">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           </div>
@@ -345,7 +407,7 @@ function renderInstanceDetail(inst) {
 
     <div class="detail-tab-panel" id="dt-devices">
       ${devices.length ? devices.map(d => `
-        <div class="detail-folder-row">
+        <div class="detail-folder-row" data-device-id="${esc(d.deviceID)}">
           <div class="detail-folder-icon" style="background:${d.connected ? "var(--green-lt)" : "var(--border)"}">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="${d.connected ? "var(--green)" : "var(--text-3)"}" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
           </div>
@@ -355,8 +417,9 @@ function renderInstanceDetail(inst) {
           </div>
           <div class="flex gap-6">
             ${d.paused
-              ? `<button class="btn btn-ghost btn-sm" onclick="actDevice('${esc(inst.id)}','${esc(d.deviceID)}','resume')">Resume</button>`
-              : `<button class="btn btn-ghost btn-sm" onclick="actDevice('${esc(inst.id)}','${esc(d.deviceID)}','pause')" title="Pauses all sync with this peer">Pause</button>`}
+              ? `<button class="btn btn-ghost btn-sm" onclick="actDevice('${esc(inst.id)}',this.closest('[data-device-id]').dataset.deviceId,'resume')">Resume</button>`
+              : `<button class="btn btn-ghost btn-sm" onclick="actDevice('${esc(inst.id)}',this.closest('[data-device-id]').dataset.deviceId,'pause')" title="Pauses all sync with this peer">Pause</button>`}
+            <button class="btn btn-danger btn-sm" title="Unshare this device" onclick="removeDevice('${esc(inst.id)}',this.closest('[data-device-id]').dataset.deviceId)">Unshare</button>
           </div>
         </div>`).join("") : '<div class="text-sm text-2 mt-8">No devices.</div>'}
     </div>
@@ -396,11 +459,12 @@ function renderFolderDetail(inst, folderId) {
       ${folder.pullErrors ? `<div class="detail-row"><span class="detail-key">Pull errors</span><span class="detail-val" style="color:var(--red)">${folder.pullErrors}</span></div>` : ""}
     </div>
 
-    <div class="flex gap-8 mt-12">
+    <div class="flex gap-8 mt-12" data-folder-id="${esc(folder.id)}">
       ${folder.paused
-        ? `<button class="btn btn-ghost btn-sm" onclick="actFolderDetail('resume','${esc(inst.id)}','${esc(folder.id)}')">Resume</button>`
-        : `<button class="btn btn-ghost btn-sm" onclick="actFolderDetail('pause','${esc(inst.id)}','${esc(folder.id)}')" title="Pauses the entire folder — not a single file">Pause</button>`}
-      <button class="btn btn-primary btn-sm" onclick="openPushModal(null,'${esc(inst.id)}','${esc(folder.id)}')">Push →</button>
+        ? `<button class="btn btn-ghost btn-sm" onclick="actFolderDetail('resume','${esc(inst.id)}',this.parentElement.dataset.folderId)">Resume</button>`
+        : `<button class="btn btn-ghost btn-sm" onclick="actFolderDetail('pause','${esc(inst.id)}',this.parentElement.dataset.folderId)" title="Pauses the entire folder — not a single file">Pause</button>`}
+      <button class="btn btn-primary btn-sm" onclick="openPushModal(null,'${esc(inst.id)}',this.parentElement.dataset.folderId)">Push →</button>
+      <button class="btn btn-danger btn-sm" title="Remove folder from Syncthing" onclick="removeFolder(null,'${esc(inst.id)}',this.parentElement.dataset.folderId)">Remove</button>
     </div>
   `;
 }
@@ -417,6 +481,24 @@ async function actDevice(instId, deviceId, action) {
     await api(`api/devices/${instId}/${deviceId}/${action}`, { method: "POST" });
     await poll();
   } catch (e) { alert(e.message); }
+}
+
+async function removeFolder(e, instId, folderId) {
+  if (e) e.stopPropagation();
+  if (!confirm("Remove this folder from Syncthing? Files already on disk are not deleted, but the folder stops syncing and is removed from Syncthing's configuration.")) return;
+  try {
+    await api(`api/folders/${instId}/${folderId}`, { method: "DELETE" });
+    if (selectedFolderId === folderId) closeDetail();
+    await poll();
+  } catch (err) { alert(err.message); }
+}
+
+async function removeDevice(instId, deviceId) {
+  if (!confirm("Unshare this device? It will be removed from every folder on this instance and disconnected.")) return;
+  try {
+    await api(`api/devices/${instId}/${deviceId}`, { method: "DELETE" });
+    await poll();
+  } catch (err) { alert(err.message); }
 }
 
 function detailTab(btn, panelId) {
@@ -796,16 +878,16 @@ async function _renderStoragePicker() {
         <svg class="storage-root-chevron" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
       </div>
       <div class="storage-subdirs">
-        <div class="storage-use-root" onclick="pickPath('${esc(s.path)}')">
+        <div class="storage-use-root" data-path="${esc(s.path)}" onclick="pickPath(this.dataset.path)">
           Use root: <span class="mono">${esc(s.path)}</span>
         </div>
         ${s.subdirs.map(d => `
-          <div class="storage-subdir" onclick="pickPath('${esc(d)}')">
+          <div class="storage-subdir" data-path="${esc(d)}" onclick="pickPath(this.dataset.path)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             ${esc(d)}
           </div>`).join("")}
         ${folderId ? `
-          <div class="storage-subdir" onclick="pickPath('${esc(s.path)}/${esc(folderId)}')">
+          <div class="storage-subdir" data-path="${esc(s.path + "/" + folderId)}" onclick="pickPath(this.dataset.path)">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
             Create: <span class="mono">${esc(s.path)}/${esc(folderId)}</span>
           </div>` : ""}
@@ -820,10 +902,8 @@ function toggleStorageRoot(header) {
 function pickPath(path) {
   $("#modal-folder-path").value = path;
   // Highlight selected
-  $$(".storage-subdir, .storage-use-root").forEach(el => el.classList.remove("selected"));
-  // Find and mark selected
   $$(".storage-subdir, .storage-use-root").forEach(el => {
-    if (el.getAttribute("onclick")?.includes(`'${path}'`)) el.classList.add("selected");
+    el.classList.toggle("selected", el.dataset.path === path);
   });
 }
 
@@ -893,8 +973,20 @@ async function executePush() {
           ${s.sourceRestartRequired ? `<div class="text-xs" style="color:var(--amber)">⚠ Source restart required</div>` : ""}
           ${s.targetRestartRequired ? `<div class="text-xs" style="color:var(--amber)">⚠ Target restart required</div>` : ""}
         </div>
-      </li>`).join("")}</ul>`;
-    if (!r.ok) showErr("modal-push-error", "Push stopped — see steps above.");
+      </li>`).join("")}</ul>
+      ${r.rollback ? `
+        <div class="text-xs text-2 mt-8" style="text-transform:uppercase;letter-spacing:.03em">Rollback of completed steps</div>
+        <ul class="step-list">${r.rollback.map(rb => `
+          <li class="step-item ${rb.ok ? "step-ok" : "step-fail"}">
+            <div class="step-icon">${rb.ok ? "✓" : "✗"}</div>
+            <div>
+              <div>${esc(rb.description)}</div>
+              ${rb.error ? `<div class="text-xs text-2">${esc(rb.error)}</div>` : ""}
+            </div>
+          </li>`).join("")}</ul>
+        ${r.rollback.some(rb => !rb.ok) ? `<div class="alert alert-error mt-8">Some rollback steps failed — you may need to clean up manually in Syncthing's own UI.</div>` : ""}
+      ` : ""}`;
+    if (!r.ok) showErr("modal-push-error", r.rollback ? "Push stopped and prior steps were rolled back — see details above." : "Push stopped — see steps above.");
     else await poll();
   } catch (e) { showErr("modal-push-error", e.message); }
   finally { $("#modal-push-btn").disabled = false; }
@@ -934,15 +1026,15 @@ function toggleTheme() {
   await loadInstances();
   await poll();
   switchTab("overview");
-  // Start polling only after boot to avoid race conditions
-  setInterval(poll, 3000);
+  // Live updates from here on via SSE — no client-side polling timer.
+  startStream();
 })();
 
 // Expose for inline handlers (includes renderFolderTable used in detail panel onclick strings)
 Object.assign(window, {
   toggleTheme, applyFilter,
   switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
-  actFolder, actFolderDetail, actDevice,
+  actFolder, actFolderDetail, actDevice, removeFolder, removeDevice,
   openAddInstance, openEditInstance, wizInstNext, wizInstBack,
   deleteInstance, testInstance,
   openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,

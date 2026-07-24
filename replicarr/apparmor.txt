@@ -52,14 +52,17 @@ profile replicarr flags=(attach_disconnected,mediate_deleted) {
   /usr/lib/bashio/ r,
   /usr/lib/bashio/** r,
 
-  # Shell and basic utilities needed by run scripts
+  # Shell and the specific utilities bashio/run scripts invoke.
+  # Alpine's coreutils are a busybox multi-call binary — most of `cat`,
+  # `mkdir`, `chmod`, `grep`, `sed`, `cut`, `sleep`, `date`, etc. resolve to
+  # /bin/busybox, not separate files, so one rule covers them.
+  /bin/busybox rix,
   /bin/bash rix,
   /bin/sh rix,
   /usr/bin/env rix,
-  /usr/bin/** rix,
-  /bin/** rix,
-  /sbin/** rix,
-  /usr/sbin/** rix,
+  /usr/bin/jq rix,
+  /usr/bin/curl rix,
+  /usr/bin/tempio rix,
 
   # Temp files (bashio writes config here)
   /tmp/ rw,
