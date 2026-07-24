@@ -10,7 +10,7 @@ multiple [Syncthing](https://syncthing.net/) instances from one place.
 - Add Syncthing instances from the UI or pre-configure them in add-on options
 - Push (share) a folder from one Syncthing instance to another with a guided flow
 - Pause and resume folder sync and device connections
-- Runs behind Home Assistant Ingress — no exposed ports
+- Runs behind Home Assistant Ingress, with an optional directly-exposed port for access from outside Home Assistant
 
 ## Installation
 

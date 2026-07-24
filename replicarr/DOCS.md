@@ -44,4 +44,8 @@ land.
 - API keys are never sent to the browser. All Syncthing REST calls happen
   server-side inside the add-on container.
 - `/data/instances.json` is written with mode `0600`.
-- The add-on uses Ingress only — no ports are exposed on the host.
+- The add-on is reachable via Home Assistant Ingress by default. It also
+  publishes port `8099/tcp` to the host so it can be reached directly from
+  outside Home Assistant; change the host-side port under the add-on's
+  **Configuration → Network** tab, or set it to nothing to disable direct
+  access and use Ingress only.
