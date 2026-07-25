@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.3.14] - 2026-07-26
+
+### Added
+- Each red problem-banner condition—offline instances, folder errors, and
+  disconnected devices—now has an information icon with a hover/focus tooltip
+  explaining what it means and practical resolution steps.
+- Every tooltip includes a direct shortcut to the relevant place in Replicarr:
+  instance management, the first affected folder, or the first affected
+  instance's Devices tab. Device shortcuts scroll to and temporarily highlight
+  the disconnected peer.
+
+### Fixed
+- Unchanged polling updates preserve the problem-banner tooltip DOM, preventing
+  an open tooltip from disappearing every three seconds.
+
 ## [0.3.13] - 2026-07-25
 
 ### Changed

@@ -151,26 +151,118 @@ function renderProblemsBanner() {
   );
   const disconnectedDevices = statusData.flatMap(i =>
     (i.devices || []).filter(d => !d.paused && !d.connected)
+      .map(d => ({ inst: i, device: d }))
   );
 
   const parts = [];
   if (offlineInstances.length) {
-    parts.push(`<span class="problem-link" onclick="switchTab('instances')">${offlineInstances.length} instance${offlineInstances.length !== 1 ? "s" : ""} offline</span>`);
+    parts.push(problemBannerItem(
+      `${offlineInstances.length} instance${offlineInstances.length !== 1 ? "s" : ""} offline`,
+      "Replicarr cannot reach this Syncthing instance, so its folders and devices cannot be refreshed.",
+      "Check that Syncthing is running, then verify its API URL, API key, VPN/network route, and GUI/API port 8384.",
+      "Open Instances",
+      "instances",
+    ));
   }
   if (folderErrors.length) {
-    parts.push(`${folderErrors.length} folder${folderErrors.length !== 1 ? "s" : ""} with errors`);
+    parts.push(problemBannerItem(
+      `${folderErrors.length} folder${folderErrors.length !== 1 ? "s" : ""} with errors`,
+      "Syncthing reports an error or failed file pulls for one or more main folders.",
+      "Open the affected folder, review its error details, and check its path, permissions, available space, pause state, and remote peer.",
+      "Open affected folder",
+      "folders",
+    ));
   }
   if (disconnectedDevices.length) {
-    parts.push(`${disconnectedDevices.length} device${disconnectedDevices.length !== 1 ? "s" : ""} disconnected`);
+    parts.push(problemBannerItem(
+      `${disconnectedDevices.length} device${disconnectedDevices.length !== 1 ? "s" : ""} disconnected`,
+      "A configured Syncthing peer is not currently connected, so files cannot sync with that device.",
+      "Make sure the remote device is awake and running Syncthing, then check its VPN/network connection and Syncthing sync port 22000.",
+      "Open Devices",
+      "devices",
+    ));
   }
 
   if (!parts.length) {
     el.classList.add("hidden");
     el.innerHTML = "";
+    delete el.dataset.problemSignature;
     return;
   }
   el.classList.remove("hidden");
-  el.innerHTML = `<div class="alert alert-error problems-banner">⚠ ${parts.join(" · ")}</div>`;
+  const signature = [
+    ...offlineInstances.map(inst => `i:${inst.id}`),
+    ...folderErrors.map(({ inst, folder }) => `f:${inst.id}:${folder.id}`),
+    ...disconnectedDevices.map(({ inst, device }) => `d:${inst.id}:${device.deviceID}`),
+  ].join("|");
+  const html = `<div class="alert alert-error problems-banner">
+    <span class="problems-warning">⚠</span>
+    ${parts.map((part, index) => `${index ? '<span class="problem-separator">·</span>' : ""}${part}`).join("")}
+  </div>`;
+  if (el.dataset.problemSignature !== signature) {
+    el.innerHTML = html;
+    el.dataset.problemSignature = signature;
+  }
+}
+
+function problemBannerItem(label, meaning, resolution, actionLabel, action) {
+  return `<span class="problem-item">
+    <span>${label}</span>
+    <button class="problem-info" type="button" aria-label="Help: ${esc(label)}">i</button>
+    <span class="problem-tooltip" role="tooltip">
+      <strong>What it means</strong>
+      <span>${esc(meaning)}</span>
+      <strong>How to resolve it</strong>
+      <span>${esc(resolution)}</span>
+      <button class="btn btn-primary btn-sm" type="button" onclick="openProblemResolution('${action}')">${actionLabel} →</button>
+    </span>
+  </span>`;
+}
+
+function openProblemResolution(type) {
+  if (type === "instances") {
+    switchTab("instances");
+    return;
+  }
+
+  if (type === "folders") {
+    const affected = statusData.flatMap(inst =>
+      (inst.folders || [])
+        .filter(folder => folder.error || folder.state === "error" || folder.pullErrors)
+        .map(folder => ({ inst, folder }))
+    )[0];
+    if (!affected) return;
+    switchTab("overview");
+    selectedInstId = affected.inst.id;
+    selectedFolderId = affected.folder.id;
+    renderQuickCards();
+    renderFolderTable();
+    openDetailPanel("folder", affected.inst.id, affected.folder.id);
+    return;
+  }
+
+  const affected = statusData.flatMap(inst =>
+    (inst.devices || [])
+      .filter(device => !device.paused && !device.connected)
+      .map(device => ({ inst, device }))
+  )[0];
+  if (!affected) return;
+  switchTab("overview");
+  selectedInstId = affected.inst.id;
+  selectedFolderId = null;
+  renderQuickCards();
+  renderFolderTable();
+  openDetailPanel("instance", affected.inst.id);
+  const devicesTab = [...$("#detail-body").querySelectorAll(".detail-tab")]
+    .find(tab => tab.textContent.trim() === "Devices");
+  if (devicesTab) detailTab(devicesTab, "dt-devices");
+  const deviceRow = [...$("#dt-devices").querySelectorAll("[data-device-id]")]
+    .find(row => row.dataset.deviceId === affected.device.deviceID);
+  if (deviceRow) {
+    deviceRow.classList.add("problem-highlight");
+    deviceRow.scrollIntoView({ behavior: "smooth", block: "center" });
+    setTimeout(() => deviceRow.classList.remove("problem-highlight"), 3000);
+  }
 }
 
 function renderQuickCards() {
@@ -1378,6 +1470,7 @@ Object.assign(window, {
   toggleTheme, toggleSidebar,
   openSettingsModal, onSettingsThemeChange, onSettingsDefaultTabChange, onSettingsSidebarChange,
   switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
+  openProblemResolution,
   startFolderDrag, dragOverFolderRow, finishFolderDrag,
   actFolder, actFolderDetail, actDevice, removeFolder, removeDevice,
   openAddInstance, openEditInstance, wizInstNext, wizInstBack,

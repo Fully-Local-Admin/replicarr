@@ -609,6 +609,77 @@ body {
 .alert-ok    { background: var(--green-lt); color: #065f46; }
 .alert-info  { background: var(--accent-lt); color: var(--accent-dk); }
 .problem-link { cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.problems-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+}
+.problems-warning { flex-shrink: 0; }
+.problem-separator { opacity: 0.55; }
+.problem-item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.problem-info {
+  display: inline-flex;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-family: Georgia, serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: help;
+}
+.problem-info:focus { outline: 2px solid currentColor; outline-offset: 2px; }
+.problem-tooltip {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 9px);
+  left: 0;
+  display: none;
+  width: min(360px, 80vw);
+  padding: 13px;
+  border: 1px solid var(--border-dk);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+.problem-item:last-child .problem-tooltip { right: 0; left: auto; }
+.problem-tooltip::before {
+  position: absolute;
+  bottom: 100%;
+  left: 8px;
+  border: 6px solid transparent;
+  border-bottom-color: var(--border-dk);
+  content: "";
+}
+.problem-item:last-child .problem-tooltip::before { right: 8px; left: auto; }
+.problem-tooltip strong,
+.problem-tooltip > span { display: block; }
+.problem-tooltip strong { margin-top: 8px; font-size: 11px; }
+.problem-tooltip strong:first-child { margin-top: 0; }
+.problem-tooltip .btn { margin-top: 11px; }
+.problem-item:hover .problem-tooltip,
+.problem-item:focus-within .problem-tooltip { display: block; }
+.problem-highlight {
+  background: var(--red-lt) !important;
+  outline: 2px solid var(--red);
+}
 
 /* ── Steps (push flow) ─────────────────────────────────────────────────────── */
 .step-list { list-style: none; }
