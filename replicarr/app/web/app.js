@@ -264,7 +264,7 @@ function renderQuickCards() {
   const visible = statusData;
   if (!statusData.length) {
     el.innerHTML = `<div class="loading-row" style="grid-column:1/-1">
-      No instances. <button class="btn btn-primary btn-sm" onclick="switchTab('instances')">Add Instance</button>
+      No instances. <button class="btn btn-primary btn-sm" onclick="openAddInstance()">Add Instance</button>
     </div>`;
     return;
   }
@@ -306,12 +306,11 @@ function renderFolderTable() {
   if (_folderDragActive) return;
   const inst = statusData.find(i => i.id === selectedInstId);
   const bc = $("#breadcrumb");
-  const actions = $("#table-actions");
   const tbody = $("#folder-tbody");
 
   if (!inst) {
     bc.innerHTML = `<span class="breadcrumb-part current">Select an instance above</span>`;
-    actions.style.display = "none";
+    $("#btn-add-folder").classList.add("hidden");
     tbody.innerHTML = `<tr><td colspan="5" class="loading-row">Select an instance to view its folders.</td></tr>`;
     return;
   }
@@ -321,7 +320,7 @@ function renderFolderTable() {
     <span class="breadcrumb-sep">›</span>
     <span class="breadcrumb-part current">Folders</span>`;
 
-  actions.style.display = "flex";
+  $("#btn-add-folder").classList.remove("hidden");
   $("#btn-add-folder").onclick = () => openAddFolder(inst.id);
 
   if (!inst.online) {

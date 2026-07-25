@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.17] - 2026-07-26
+
+### Changed
+- Renamed the Overview card section from **Quick Access** to **Instances**.
+- Added **Add Instance** beside **Add Folder** in the Overview folder-table
+  header. It remains available when no instance is selected, while Add Folder
+  appears after selecting an instance.
+- Kept the separate Instances page because it still uniquely provides API URL
+  visibility and Test, Edit, and Delete controls; no management feature was
+  removed.
+
 ## [0.3.16] - 2026-07-26
 
 ### Changed

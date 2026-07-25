@@ -63,10 +63,10 @@
       <div class="tab-panel" data-panel="overview">
         <div id="problems-banner" class="hidden"></div>
 
-        <!-- Quick access: instance cards -->
+        <!-- Instance cards -->
         <div class="quick-access">
           <div class="quick-access-header">
-            <span class="section-title">Quick Access</span>
+            <span class="section-title">Instances</span>
             <button class="btn-icon" title="Refresh" onclick="poll()">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
             </button>
@@ -82,10 +82,14 @@
             <div class="breadcrumb" id="breadcrumb">
               <span class="breadcrumb-part current">Select an instance above</span>
             </div>
-            <div class="file-table-actions" id="table-actions" style="display:none">
-              <button class="btn btn-primary btn-sm" id="btn-add-folder">
+            <div class="file-table-actions" id="table-actions">
+              <button class="btn btn-primary btn-sm hidden" id="btn-add-folder">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
                 Add Folder
+              </button>
+              <button class="btn btn-ghost btn-sm" onclick="openAddInstance()">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                Add Instance
               </button>
             </div>
           </div>
