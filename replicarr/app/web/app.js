@@ -275,7 +275,13 @@ function renderQuickCards() {
     const iconCls = online ? "" : "offline";
     const selCls  = selectedInstId === inst.id ? "selected" : "";
 
-    return `<div class="quick-card ${selCls}" data-instance-id="${esc(inst.id)}" onclick="openInstanceManagement(this.dataset.instanceId)">
+    return `<div class="quick-card ${selCls}" data-instance-id="${esc(inst.id)}" onclick="selectInstance(this.dataset.instanceId)">
+      <button class="quick-card-edit" type="button" title="Edit instance" aria-label="Edit ${esc(inst.name)}"
+              onclick="event.stopPropagation(); openInstanceManagement(this.closest('.quick-card').dataset.instanceId)">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/>
+        </svg>
+      </button>
       <div class="quick-card-icon ${iconCls}">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${online ? "var(--accent)" : "var(--red)"}" stroke-width="2">
           <ellipse cx="12" cy="5" rx="9" ry="3"/>

@@ -203,6 +203,7 @@ body {
 .section-title { font-size: 14px; font-weight: 600; }
 .quick-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .quick-card {
+  position: relative;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 14px;
@@ -211,6 +212,27 @@ body {
 }
 .quick-card:hover { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-lt); }
 .quick-card.selected { border-color: var(--accent); background: var(--accent-lt); }
+.quick-card-edit {
+  position: absolute;
+  top: 9px;
+  right: 9px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.quick-card-edit:hover {
+  border-color: var(--border);
+  background: var(--surface);
+  color: var(--accent);
+}
 .quick-card-icon {
   width: 36px;
   height: 36px;

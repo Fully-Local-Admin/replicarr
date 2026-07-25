@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.20] - 2026-07-26
+
+### Changed
+- Added a dedicated pencil button to each Overview instance card. The pencil
+  opens that instance's management modal.
+- Clicking the card itself now selects the instance and opens its right-side
+  details panel without opening the management modal.
+
 ## [0.3.19] - 2026-07-26
 
 ### Changed
