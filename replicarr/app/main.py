@@ -520,6 +520,10 @@ class DiscoveredInstanceTestRequest(BaseModel):
     expected_device_id: str
 
 
+class FolderOrderUpdate(BaseModel):
+    folder_ids: list[str]
+
+
 def _discovered_api_candidates(address: str) -> tuple[list[str], bool]:
     """Turn a live Syncthing transport address into safe GUI/API candidates."""
     value = address.strip()
@@ -630,6 +634,19 @@ async def test_instance(inst_id: str):
         return {"reachable": False, "error": str(e)}
     except Exception as e:
         return {"reachable": False, "error": str(e)}
+
+
+# ── Replicarr UI preferences ──────────────────────────────────────────────────
+@app.get("/api/folder-orders")
+async def get_folder_orders():
+    return store.load_folder_orders()
+
+
+@app.put("/api/folder-orders/{inst_id}")
+async def update_folder_order(inst_id: str, body: FolderOrderUpdate):
+    if not any(inst["id"] == inst_id for inst in store.load_instances()):
+        raise HTTPException(404, f"Instance '{inst_id}' not found")
+    return {"folderIds": store.save_folder_order(inst_id, body.folder_ids)}
 
 
 # ── Status / overview ──────────────────────────────────────────────────────────

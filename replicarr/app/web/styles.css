@@ -328,6 +328,21 @@ body {
 }
 .table tr:last-child td { border-bottom: 0; }
 .table tr { transition: background 0.1s; cursor: pointer; }
+.folder-drag-handle {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  cursor: grab;
+  touch-action: none;
+}
+.folder-drag-handle:hover { color: var(--accent); }
+.folder-drag-handle:active { cursor: grabbing; }
+.table tr.folder-dragging {
+  opacity: 0.45;
+  background: var(--accent-lt);
+}
 .table tr:hover td { background: #f9fafb; }
 .table tr.selected td { background: var(--accent-lt); }
 

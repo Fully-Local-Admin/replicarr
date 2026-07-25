@@ -30,6 +30,7 @@ def fakes(monkeypatch, tmp_path):
     monkeypatch.setattr(main.store, "DATA_PATH", tmp_path)
     monkeypatch.setattr(main.store, "INSTANCES_FILE", tmp_path / "instances.json")
     monkeypatch.setattr(main.store, "SUBFOLDER_PUSHES_FILE", tmp_path / "subfolder_pushes.json")
+    monkeypatch.setattr(main.store, "FOLDER_ORDERS_FILE", tmp_path / "folder_orders.json")
 
     registry = {
         "http://source": FakeInstance("SRC-ID"),
@@ -126,6 +127,20 @@ def test_search_subfolders_returns_actionable_location(client, monkeypatch):
         "name": "Paradise",
         "path": "Paradise",
     }]
+
+
+def test_folder_order_api_persists_per_instance(client):
+    saved = client.put(
+        "/api/folder-orders/source",
+        json={"folder_ids": ["tvshows", "archive"]},
+        headers=HDR,
+    )
+    assert saved.status_code == 200
+    assert saved.json() == {"folderIds": ["tvshows", "archive"]}
+
+    loaded = client.get("/api/folder-orders", headers=HDR)
+    assert loaded.status_code == 200
+    assert loaded.json() == {"source": ["tvshows", "archive"]}
 
 
 def test_push_subfolder_requires_target_path_on_first_push(client):

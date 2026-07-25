@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.3.12] - 2026-07-25
+
+### Added
+- Main-folder rows now have a six-dot drag handle immediately before the
+  folder icon. Dragging rearranges the table and saves the order automatically
+  as a per-instance Replicarr preference.
+- Folder order is stored server-side in the add-on's persistent `/data`
+  directory, survives restarts and different browsers, and does not modify
+  Syncthing's own folder configuration. Newly discovered folders are appended
+  after the saved order.
+
 ## [0.3.11] - 2026-07-25
 
 ### Added

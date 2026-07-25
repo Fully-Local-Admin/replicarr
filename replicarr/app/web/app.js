@@ -81,8 +81,10 @@ let instances     = [];   // from /api/instances (no api_key)
 let statusData    = [];   // from /api/status
 let transferData  = null; // from /api/transfers
 let subfolderTransfersData = []; // from /api/subfolder-transfers
+let folderOrders = {};    // { instance_id: [folder_id, ...] }, persisted server-side
 let selectedInstId  = null;
 let selectedFolderId = null;
+let _folderDragActive = false;
 
 // ── Polling ───────────────────────────────────────────────────────────────────
 // An SSE-pushed live feed briefly replaced this polling loop, but it kept
@@ -214,6 +216,7 @@ function selectInstance(id) {
 }
 
 function renderFolderTable() {
+  if (_folderDragActive) return;
   const inst = statusData.find(i => i.id === selectedInstId);
   const bc = $("#breadcrumb");
   const actions = $("#table-actions");
@@ -239,16 +242,38 @@ function renderFolderTable() {
     return;
   }
 
-  const folders = inst.folders || [];
+  const originalFolders = inst.folders || [];
+  const savedOrder = folderOrders[inst.id] || [];
+  const savedRanks = new Map(savedOrder.map((id, index) => [id, index]));
+  const originalRanks = new Map(originalFolders.map((folder, index) => [folder.id, index]));
+  const folders = [...originalFolders].sort((a, b) => {
+    const aRank = savedRanks.has(a.id) ? savedRanks.get(a.id) : savedOrder.length + originalRanks.get(a.id);
+    const bRank = savedRanks.has(b.id) ? savedRanks.get(b.id) : savedOrder.length + originalRanks.get(b.id);
+    return aRank - bRank;
+  });
   if (!folders.length) {
     tbody.innerHTML = `<tr><td colspan="5" class="loading-row">No folders on this instance.</td></tr>`;
     return;
   }
 
   tbody.innerHTML = folders.map(f => {
+    const dragHandle = `
+      <span class="folder-drag-handle" draggable="true"
+            title="Drag to reorder"
+            onclick="event.stopPropagation()"
+            ondragstart="startFolderDrag(event)"
+            ondragend="finishFolderDrag(event)">
+        <svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor" aria-hidden="true">
+          <circle cx="2" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/>
+          <circle cx="2" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/>
+          <circle cx="2" cy="13" r="1.2"/><circle cx="8" cy="13" r="1.2"/>
+        </svg>
+      </span>`;
     if (f.error) {
-      return `<tr><td colspan="5" class="offline-row" style="padding:11px 20px">
-        <span class="mono">${esc(f.id)}</span> — ${esc(f.error)}
+      return `<tr data-folder-id="${esc(f.id)}" data-instance-id="${esc(inst.id)}"
+                  ondragover="dragOverFolderRow(event)">
+        <td colspan="5" class="offline-row" style="padding:11px 20px">
+        <span class="flex items-center gap-8">${dragHandle}<span><span class="mono">${esc(f.id)}</span> — ${esc(f.error)}</span></span>
       </td></tr>`;
     }
     const pct  = f.completion ?? 100;
@@ -256,9 +281,12 @@ function renderFolderTable() {
     const selCls  = selectedFolderId === f.id ? "selected" : "";
     const chipHtml = chip(f.state, f.paused);
 
-    return `<tr class="${selCls}" data-folder-id="${esc(f.id)}" onclick="selectFolder('${esc(inst.id)}', this.dataset.folderId)">
+    return `<tr class="${selCls}" data-folder-id="${esc(f.id)}" data-instance-id="${esc(inst.id)}"
+               ondragover="dragOverFolderRow(event)"
+               onclick="selectFolder('${esc(inst.id)}', this.dataset.folderId)">
       <td>
         <div class="td-name">
+          ${dragHandle}
           <div class="td-icon ${f.paused ? "paused" : f.state === "syncing" ? "syncing" : ""}">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${f.paused ? "var(--amber)" : "var(--accent)"}" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           </div>
@@ -286,6 +314,43 @@ function renderFolderTable() {
       </td>
     </tr>`;
   }).join("");
+}
+
+function startFolderDrag(event) {
+  const row = event.currentTarget.closest("tr");
+  _folderDragActive = true;
+  row.classList.add("folder-dragging");
+  event.dataTransfer.effectAllowed = "move";
+  event.dataTransfer.setData("text/plain", row.dataset.folderId);
+}
+
+function dragOverFolderRow(event) {
+  event.preventDefault();
+  const target = event.currentTarget;
+  const dragging = $("#folder-tbody .folder-dragging");
+  if (!dragging || dragging === target) return;
+  const insertAfter = event.clientY > target.getBoundingClientRect().top + target.offsetHeight / 2;
+  target.parentElement.insertBefore(dragging, insertAfter ? target.nextSibling : target);
+}
+
+async function finishFolderDrag(event) {
+  const row = event.currentTarget.closest("tr");
+  const instId = row.dataset.instanceId;
+  row.classList.remove("folder-dragging");
+  _folderDragActive = false;
+  const folderIds = [...$("#folder-tbody").querySelectorAll("tr[data-folder-id]")]
+    .map(folderRow => folderRow.dataset.folderId);
+  folderOrders[instId] = folderIds;
+  try {
+    await api(`api/folder-orders/${instId}`, {
+      method: "PUT",
+      body: { folder_ids: folderIds },
+    });
+  } catch (e) {
+    await loadFolderOrders();
+    renderFolderTable();
+    alert(`Could not save folder order: ${e.message}`);
+  }
 }
 
 function selectFolder(instId, folderId) {
@@ -1257,6 +1322,10 @@ async function loadInstances() {
   renderInstancesTab();
 }
 
+async function loadFolderOrders() {
+  folderOrders = await api("api/folder-orders");
+}
+
 // ── Dark mode ─────────────────────────────────────────────────────────────────
 function applyTheme(dark) {
   document.documentElement.classList.toggle("dark", dark);
@@ -1314,7 +1383,7 @@ function onSettingsSidebarChange() {
   applyTheme(saved ? saved === "dark" : prefersDark);
   applySidebar(localStorage.getItem("replicarr-sidebar-collapsed") === "1");
 
-  await loadInstances();
+  await Promise.all([loadInstances(), loadFolderOrders()]);
   await poll();
   switchTab(localStorage.getItem("replicarr-default-tab") || "overview");
   // Poll on a timer — see the note above poll()'s definition for why this
@@ -1327,6 +1396,7 @@ Object.assign(window, {
   toggleTheme, toggleSidebar,
   openSettingsModal, onSettingsThemeChange, onSettingsDefaultTabChange, onSettingsSidebarChange,
   switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
+  startFolderDrag, dragOverFolderRow, finishFolderDrag,
   actFolder, actFolderDetail, actDevice, removeFolder, removeDevice,
   openAddInstance, openEditInstance, wizInstNext, wizInstBack,
   openAddDiscoveredDevice,

@@ -13,6 +13,7 @@ def isolated_store(tmp_path, monkeypatch):
     """Point store at a throwaway instances.json for every test."""
     monkeypatch.setattr(store, "DATA_PATH", tmp_path)
     monkeypatch.setattr(store, "INSTANCES_FILE", tmp_path / "instances.json")
+    monkeypatch.setattr(store, "FOLDER_ORDERS_FILE", tmp_path / "folder_orders.json")
     yield
 
 
@@ -33,6 +34,22 @@ def test_add_instance_rejects_duplicate_slug():
     store.add_instance("Home NAS", "http://a", "k1")
     with pytest.raises(ValueError):
         store.add_instance("home nas", "http://b", "k2")
+
+
+def test_folder_order_persists_and_deduplicates():
+    saved = store.save_folder_order("home-nas", ["photos", "docs", "photos", ""])
+    assert saved == ["photos", "docs"]
+    assert store.load_folder_orders() == {"home-nas": ["photos", "docs"]}
+
+
+def test_folder_orders_are_independent_per_instance():
+    store.save_folder_order("one", ["a", "b"])
+    store.save_folder_order("two", ["z"])
+    store.save_folder_order("one", ["b", "a"])
+    assert store.load_folder_orders() == {
+        "two": ["z"],
+        "one": ["b", "a"],
+    }
 
 
 def test_update_instance_replaces_fields():
@@ -56,8 +73,10 @@ def test_update_instance_config_managed_raises_permissionerror():
 
 def test_delete_instance_removes_ui_instance():
     store.add_instance("Home NAS", "http://a", "k1")
+    store.save_folder_order("home-nas", ["photos", "docs"])
     store.delete_instance("home-nas")
     assert store.load_instances() == []
+    assert store.load_folder_orders() == {}
 
 
 def test_delete_instance_config_managed_raises_permissionerror():

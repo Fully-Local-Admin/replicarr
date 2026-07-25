@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 DATA_PATH = Path(os.environ.get("DATA_PATH", "/data"))
 INSTANCES_FILE = DATA_PATH / "instances.json"
 SUBFOLDER_PUSHES_FILE = DATA_PATH / "subfolder_pushes.json"
+FOLDER_ORDERS_FILE = DATA_PATH / "folder_orders.json"
 
 # Guards read-modify-write of the JSON stores. FastAPI's single-threaded
 # event loop already serializes these calls in practice (none of them await
@@ -76,6 +77,26 @@ def _save_raw(instances: list[dict[str, Any]]) -> None:
 
 def load_instances() -> list[dict[str, Any]]:
     return _load_raw()
+
+
+def load_folder_orders() -> dict[str, list[str]]:
+    orders: dict[str, list[str]] = {}
+    for entry in _read_json_list(FOLDER_ORDERS_FILE):
+        instance_id = entry.get("instance_id")
+        folder_ids = entry.get("folder_ids")
+        if isinstance(instance_id, str) and isinstance(folder_ids, list):
+            orders[instance_id] = [fid for fid in folder_ids if isinstance(fid, str)]
+    return orders
+
+
+def save_folder_order(instance_id: str, folder_ids: list[str]) -> list[str]:
+    clean_ids = list(dict.fromkeys(fid for fid in folder_ids if isinstance(fid, str) and fid))
+    with _lock:
+        entries = _read_json_list(FOLDER_ORDERS_FILE)
+        entries = [entry for entry in entries if entry.get("instance_id") != instance_id]
+        entries.append({"instance_id": instance_id, "folder_ids": clean_ids})
+        _write_json_list(FOLDER_ORDERS_FILE, entries)
+    return clean_ids
 
 
 def merge_config_instances(
@@ -153,6 +174,12 @@ def delete_instance(inst_id: str) -> None:
                     raise PermissionError("Cannot delete a config-managed instance")
                 instances.remove(inst)
                 _save_raw(instances)
+                orders = _read_json_list(FOLDER_ORDERS_FILE)
+                remaining_orders = [
+                    entry for entry in orders if entry.get("instance_id") != inst_id
+                ]
+                if len(remaining_orders) != len(orders):
+                    _write_json_list(FOLDER_ORDERS_FILE, remaining_orders)
                 return
         raise KeyError(f"Instance '{inst_id}' not found")
 
