@@ -688,18 +688,37 @@ async function searchSubfolders() {
     resultsEl.innerHTML = `
       ${response.failedFolders ? `<div class="alert alert-info mb-12">${response.failedFolders} folder${response.failedFolders === 1 ? "" : "s"} could not be searched.</div>` : ""}
       ${response.truncated ? '<div class="alert alert-info mb-12">Showing the first 100 matches. Use a more specific search to narrow the results.</div>' : ""}
-      ${response.results.map(result => `
-        <div class="search-result"
-             data-instance-id="${esc(result.instanceId)}"
-             data-folder-id="${esc(result.folderId)}"
-             data-path="${esc(result.path)}">
-          <div class="search-result-main">
-            <div class="search-result-name">${esc(result.name)}</div>
-            <div class="search-result-path">${esc(result.instanceName)} · ${esc(result.folderLabel)} · ${esc(result.path)}</div>
-          </div>
-          <button class="btn btn-ghost btn-sm" onclick="revealSearchResult(this.closest('.search-result'))">Show in folder</button>
-          <button class="btn btn-primary btn-sm" onclick="pushSearchResult(this.closest('.search-result'))">Push →</button>
-        </div>`).join("")}
+      <table class="search-results-table">
+        <thead>
+          <tr>
+            <th>Subfolder</th>
+            <th>Location</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${response.results.map(result => `
+          <tr class="search-result"
+              data-instance-id="${esc(result.instanceId)}"
+              data-folder-id="${esc(result.folderId)}"
+              data-path="${esc(result.path)}">
+            <td>
+              <div class="search-result-main">
+                <div class="search-result-name">${esc(result.name)}</div>
+                <div class="search-result-path">${esc(result.path)}</div>
+              </div>
+            </td>
+            <td>
+              <div class="search-result-location">${esc(result.instanceName)}</div>
+              <div class="search-result-folder">${esc(result.folderLabel)}</div>
+            </td>
+            <td class="search-result-actions">
+              <button class="btn btn-ghost btn-sm" onclick="revealSearchResult(this.closest('.search-result'))">Show in folder</button>
+              <button class="btn btn-primary btn-sm" onclick="pushSearchResult(this.closest('.search-result'))">Push →</button>
+            </td>
+          </tr>`).join("")}
+        </tbody>
+      </table>
     `;
   } catch (e) {
     resultsEl.innerHTML = `<div class="alert alert-error">Search failed: ${esc(e.message)}</div>`;

@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.3.16] - 2026-07-26
+
+### Changed
+- Search results now open in a consistently sized modal with a clean,
+  three-column table for the subfolder, its location, and available actions.
+- The results area scrolls independently while the modal title and table
+  headings remain visible.
+- The search modal can be dismissed with its close icon or by clicking the
+  shaded background outside the modal.
+
 ## [0.3.15] - 2026-07-26
 
 ### Removed

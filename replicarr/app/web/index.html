@@ -162,19 +162,16 @@
 </div><!-- /app -->
 
 <!-- ── Subfolder search results ────────────────────────────────────────────── -->
-<div id="modal-search" class="modal-overlay hidden">
-  <div class="modal">
+<div id="modal-search" class="modal-overlay hidden" onclick="if(event.target===this) closeModal('modal-search')">
+  <div class="modal search-modal">
     <div class="modal-header">
       <span class="modal-title">Subfolder Search</span>
-      <button class="btn-icon" onclick="closeModal('modal-search')">
+      <button class="btn-icon" title="Close search results" aria-label="Close search results" onclick="closeModal('modal-search')">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
     </div>
-    <div class="modal-body" id="subfolder-search-results">
+    <div class="modal-body search-modal-results" id="subfolder-search-results">
       <div class="loading-row">Enter a subfolder name above.</div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-search')">Close</button>
     </div>
   </div>
 </div>
