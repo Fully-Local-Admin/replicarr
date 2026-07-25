@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.22] - 2026-07-26
+
+### Changed
+- Updated **Add Instance** to use the same primary button styling as
+  **Add Folder** in the Overview folder-table header.
+
 ## [0.3.21] - 2026-07-26
 
 ### Fixed
