@@ -66,6 +66,7 @@ html.dark .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3
   flex-shrink: 0;
 }
 .btn-theme:hover { background: var(--bg); color: var(--text); }
+.btn-theme.active { background: var(--accent-lt); border-color: var(--accent); color: var(--accent); }
 .icon-sun  { display: none; }
 .icon-moon { display: block; }
 html.dark .icon-sun  { display: block; }
@@ -364,7 +365,7 @@ body {
 .detail-header {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-start;
   padding: 16px 16px 12px;
   border-bottom: 1px solid var(--border);
 }

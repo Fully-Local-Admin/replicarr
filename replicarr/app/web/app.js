@@ -296,7 +296,6 @@ function renderQuickCards() {
 function selectInstance(id) {
   selectedInstId = id;
   selectedFolderId = null;
-  $("#detail-panel").classList.add("hidden");
   renderQuickCards();
   renderFolderTable();
   openDetailPanel("instance", id);
@@ -311,6 +310,9 @@ function openInstanceManagement(id) {
   selectedFolderId = null;
   renderQuickCards();
   renderFolderTable();
+  if (!$("#detail-panel").classList.contains("hidden")) {
+    updateDetailPanel("instance", id);
+  }
 
   const locked = configured.source === "config";
   const folderCount = status?.folders?.length ?? "—";
@@ -499,13 +501,33 @@ async function actFolder(e, action, instId, folderId) {
 function openDetailPanel(type, instId, folderId) {
   const panel = $("#detail-panel");
   panel.classList.remove("hidden");
+  syncDetailToggle();
   updateDetailPanel(type, instId, folderId);
 }
 
 function closeDetail() {
   $("#detail-panel").classList.add("hidden");
+  syncDetailToggle();
   selectedFolderId = null;
   renderFolderTable();
+}
+
+function syncDetailToggle() {
+  const open = !$("#detail-panel").classList.contains("hidden");
+  const button = $("#btn-detail-toggle");
+  button.classList.toggle("active", open);
+  button.setAttribute("aria-expanded", String(open));
+}
+
+function toggleDetailPanel() {
+  const panel = $("#detail-panel");
+  if (!panel.classList.contains("hidden")) {
+    panel.classList.add("hidden");
+    syncDetailToggle();
+    return;
+  }
+  if (!selectedInstId) return;
+  openDetailPanel(selectedFolderId ? "folder" : "instance", selectedInstId, selectedFolderId);
 }
 
 function updateDetailPanel(type, instId, folderId) {
@@ -1431,6 +1453,7 @@ function toggleTheme() {
 // Expose for inline handlers (includes renderFolderTable used in detail panel onclick strings)
 Object.assign(window, {
   toggleTheme,
+  toggleDetailPanel,
   switchTab, selectInstance, openInstanceManagement, selectFolder, renderFolderTable, closeDetail, detailTab,
   openProblemResolution,
   startFolderDrag, dragOverFolderRow, finishFolderDrag,

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.19] - 2026-07-26
+
+### Changed
+- Added a right-sidebar toggle beside the light/dark mode control. It opens or
+  closes the details panel for the currently selected instance or folder.
+- Hiding the details panel with the top-bar toggle now preserves its selection,
+  so reopening it restores the same context.
+- The toggle highlights while the details panel is open and exposes its state
+  to assistive technology.
+
+### Removed
+- Removed the close button from inside the right details panel.
+
 ## [0.3.18] - 2026-07-26
 
 ### Changed
