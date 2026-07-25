@@ -111,7 +111,6 @@ async function poll() {
 function applyPoll() {
   if (activeTab === "overview")   renderOverview();
   if (activeTab === "transfers")  renderTransfers();
-  if (activeTab === "instances")  renderInstancesTab();
   if (selectedInstId)             updateDetailPanel();
 }
 
@@ -126,7 +125,6 @@ function switchTab(tab) {
   );
   if (tab === "overview")   renderOverview();
   if (tab === "transfers")  renderTransfers();
-  if (tab === "instances")  renderInstancesTab();
 }
 
 // ── Overview tab ──────────────────────────────────────────────────────────────
@@ -154,7 +152,7 @@ function renderProblemsBanner() {
       `${offlineInstances.length} instance${offlineInstances.length !== 1 ? "s" : ""} offline`,
       "Replicarr cannot reach this Syncthing instance, so its folders and devices cannot be refreshed.",
       "Check that Syncthing is running, then verify its API URL, API key, VPN/network route, and GUI/API port 8384.",
-      "Open Instances",
+      "Open instance",
       "instances",
     ));
   }
@@ -215,7 +213,8 @@ function problemBannerItem(label, meaning, resolution, actionLabel, action) {
 
 function openProblemResolution(type) {
   if (type === "instances") {
-    switchTab("instances");
+    const affected = statusData.find(inst => !inst.online);
+    if (affected) openInstanceManagement(affected.id);
     return;
   }
 
@@ -276,7 +275,7 @@ function renderQuickCards() {
     const iconCls = online ? "" : "offline";
     const selCls  = selectedInstId === inst.id ? "selected" : "";
 
-    return `<div class="quick-card ${selCls}" onclick="selectInstance('${esc(inst.id)}')">
+    return `<div class="quick-card ${selCls}" data-instance-id="${esc(inst.id)}" onclick="openInstanceManagement(this.dataset.instanceId)">
       <div class="quick-card-icon ${iconCls}">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="${online ? "var(--accent)" : "var(--red)"}" stroke-width="2">
           <ellipse cx="12" cy="5" rx="9" ry="3"/>
@@ -297,9 +296,49 @@ function renderQuickCards() {
 function selectInstance(id) {
   selectedInstId = id;
   selectedFolderId = null;
+  $("#detail-panel").classList.add("hidden");
   renderQuickCards();
   renderFolderTable();
   openDetailPanel("instance", id);
+}
+
+function openInstanceManagement(id) {
+  const configured = instances.find(inst => inst.id === id);
+  const status = statusData.find(inst => inst.id === id);
+  if (!configured) return;
+
+  selectedInstId = id;
+  selectedFolderId = null;
+  renderQuickCards();
+  renderFolderTable();
+
+  const locked = configured.source === "config";
+  const folderCount = status?.folders?.length ?? "—";
+  const statusChip = status?.online === true
+    ? '<span class="chip synced" style="font-size:10px"><span class="chip-dot"></span>Online</span>'
+    : status?.online === false
+      ? '<span class="chip error" style="font-size:10px"><span class="chip-dot"></span>Offline</span>'
+      : '<span class="chip offline" style="font-size:10px"><span class="chip-dot"></span>Unknown</span>';
+
+  $("#instance-manage-body").innerHTML = `
+    <div class="flex items-center gap-8 mb-12">
+      <span class="detail-title">${esc(configured.name)}</span>
+      ${locked ? '<span class="badge-config">config locked</span>' : ""}
+    </div>
+    <div class="confirm-summary">
+      <div class="confirm-row"><span class="confirm-key">Status</span><span class="confirm-val">${statusChip}</span></div>
+      <div class="confirm-row"><span class="confirm-key">Configured API URL</span><span class="confirm-val">${esc(configured.url)}</span></div>
+      <div class="confirm-row"><span class="confirm-key">Folders</span><span class="confirm-val">${folderCount}</span></div>
+      <div class="confirm-row"><span class="confirm-key">Device ID</span><span class="confirm-val">${esc(status?.myID || "—")}</span></div>
+      <div class="confirm-row"><span class="confirm-key">Version</span><span class="confirm-val">${esc(status?.version || "—")}</span></div>
+    </div>
+    ${locked ? '<div class="alert alert-info mt-12">This instance is defined in the Home Assistant add-on configuration. Edit or remove it from the add-on Configuration page.</div>' : ""}
+    <div class="flex gap-8 justify-end mt-12">
+      <button class="btn btn-ghost" onclick="testInstance('${esc(id)}')">Test</button>
+      ${!locked ? `<button class="btn btn-ghost" onclick="closeModal('modal-instance-manage'); openEditInstance('${esc(id)}')">Edit</button>` : ""}
+      ${!locked ? `<button class="btn btn-danger" onclick="deleteInstance('${esc(id)}')">Delete</button>` : ""}
+    </div>`;
+  $("#modal-instance-manage").classList.remove("hidden");
 }
 
 function renderFolderTable() {
@@ -911,58 +950,6 @@ function setTransferTab(tab) {
   renderSubfolderTransfers();
 }
 
-// ── Instances tab ─────────────────────────────────────────────────────────────
-function renderInstancesTab() {
-  const tbody = $("#instances-tbody");
-  if (!instances.length) {
-    tbody.innerHTML = `<tr><td colspan="5"><div class="empty-state" style="padding:40px 20px">
-      <h3>No instances</h3>
-      <p>Add your first Syncthing instance to get started.</p>
-      <button class="btn btn-primary" onclick="openAddInstance()">Add Instance</button>
-    </div></td></tr>`;
-    return;
-  }
-
-  tbody.innerHTML = instances.map(inst => {
-    const s = statusData.find(i => i.id === inst.id);
-    const online = s?.online;
-    const folderCount = s?.folders?.length ?? "—";
-    const shortId = s?.myID ? s.myID.slice(0, 12) + "…" : "—";
-    const locked = inst.source === "config";
-    const statusChip = online === true
-      ? `<span class="chip synced" style="font-size:10px"><span class="chip-dot"></span>Online</span>`
-      : online === false
-        ? `<span class="chip error" style="font-size:10px"><span class="chip-dot"></span>Offline</span>`
-        : `<span class="chip offline" style="font-size:10px"><span class="chip-dot"></span>—</span>`;
-
-    return `<tr onclick="selectInstance('${esc(inst.id)}'); switchTab('overview')">
-      <td>
-        <div class="td-name">
-          <div class="td-icon ${online === false ? "offline" : ""}">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="${online === false ? "var(--red)" : "var(--accent)"}" stroke-width="2">
-              <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-            </svg>
-          </div>
-          <div>
-            <div class="flex items-center gap-8">${esc(inst.name)} ${locked ? '<span class="badge-config">config</span>' : ""}</div>
-            <div class="td-meta mono">${esc(inst.url)}</div>
-          </div>
-        </div>
-      </td>
-      <td>${statusChip}</td>
-      <td class="text-sm">${folderCount}</td>
-      <td class="text-sm mono text-2">${shortId}</td>
-      <td>
-        <div class="flex gap-6 justify-end" onclick="event.stopPropagation()">
-          <button class="btn btn-ghost btn-sm" onclick="testInstance('${esc(inst.id)}')">Test</button>
-          ${!locked ? `<button class="btn btn-ghost btn-sm" onclick="openEditInstance('${esc(inst.id)}')">Edit</button>` : ""}
-          ${!locked ? `<button class="btn btn-danger btn-sm" onclick="deleteInstance('${esc(inst.id)}')">Delete</button>` : ""}
-        </div>
-      </td>
-    </tr>`;
-  }).join("");
-}
-
 // ── Instance wizard ───────────────────────────────────────────────────────────
 let _editingId   = null;
 let _wizInstStep = 1;
@@ -1125,6 +1112,12 @@ async function deleteInstance(id) {
   if (!confirm("Remove this instance from Replicarr? Syncthing is not affected.")) return;
   try {
     await api(`api/instances/${id}`, { method: "DELETE" });
+    closeModal("modal-instance-manage");
+    if (selectedInstId === id) {
+      selectedInstId = null;
+      selectedFolderId = null;
+      closeDetail();
+    }
     await loadInstances();
     await poll();
   } catch (e) { alert(e.message); }
@@ -1404,7 +1397,6 @@ function closeModal(id) { $(`#${id}`).classList.add("hidden"); }
 
 async function loadInstances() {
   instances = await api("api/instances");
-  renderInstancesTab();
 }
 
 async function loadFolderOrders() {
@@ -1439,7 +1431,7 @@ function toggleTheme() {
 // Expose for inline handlers (includes renderFolderTable used in detail panel onclick strings)
 Object.assign(window, {
   toggleTheme,
-  switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
+  switchTab, selectInstance, openInstanceManagement, selectFolder, renderFolderTable, closeDetail, detailTab,
   openProblemResolution,
   startFolderDrag, dragOverFolderRow, finishFolderDrag,
   actFolder, actFolderDetail, actDevice, removeFolder, removeDevice,

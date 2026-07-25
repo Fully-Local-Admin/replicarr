@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.3.18] - 2026-07-26
+
+### Changed
+- Clicking an instance card on Overview now selects it for the folder table and
+  opens an instance-management modal.
+- The modal shows the configured API URL, live status, folder count, full
+  Device ID, Syncthing version, and whether the instance is locked by the
+  Home Assistant add-on configuration.
+- Test, Edit, and Delete are now available from the modal. Config-locked
+  instances retain Test while clearly directing configuration changes to the
+  add-on Configuration page.
+- Offline-instance problem-banner shortcuts now open the affected instance's
+  management modal directly.
+
+### Removed
+- Removed the redundant Instances navigation tab and table. No management
+  information or action was removed; instances are now managed individually
+  from their Overview cards.
+
 ## [0.3.17] - 2026-07-26
 
 ### Changed

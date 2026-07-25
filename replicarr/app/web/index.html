@@ -27,10 +27,6 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 17l4 4 4-4"/><path d="M12 12v9"/><path d="M16 7l-4-4-4 4"/><path d="M12 3v5"/></svg>
         Transfers
       </button>
-      <button class="topbar-tab" data-tab="instances" onclick="switchTab('instances')">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>
-        Instances
-      </button>
     </nav>
     <div class="topbar-spacer"></div>
     <div class="topbar-search">
@@ -118,33 +114,6 @@
         <div id="subfolder-transfers"></div>
       </div>
 
-      <!-- Instances tab -->
-      <div class="tab-panel hidden" data-panel="instances">
-        <div class="file-table-wrap">
-          <div class="file-table-header">
-            <span class="section-title">Syncthing Instances</span>
-            <button class="btn btn-primary btn-sm" onclick="openAddInstance()">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-              Add Instance
-            </button>
-          </div>
-          <table class="table">
-            <thead>
-              <tr>
-                <th style="width:35%">Instance</th>
-                <th style="width:20%">Status</th>
-                <th style="width:15%">Folders</th>
-                <th style="width:20%">Device ID</th>
-                <th style="width:10%"></th>
-              </tr>
-            </thead>
-            <tbody id="instances-tbody">
-              <tr><td colspan="5" class="loading-row">Loading…</td></tr>
-            </tbody>
-          </table>
-        </div>
-      </div>
-
     </div><!-- /main-content -->
 
     <!-- ── Detail panel ──────────────────────────────────────────────────────── -->
@@ -164,6 +133,19 @@
 
   </div><!-- /main -->
 </div><!-- /app -->
+
+<!-- ── Instance management ────────────────────────────────────────────────── -->
+<div id="modal-instance-manage" class="modal-overlay hidden" onclick="if(event.target===this) closeModal('modal-instance-manage')">
+  <div class="modal" style="width:520px">
+    <div class="modal-header">
+      <span class="modal-title">Instance</span>
+      <button class="btn-icon" title="Close instance" aria-label="Close instance" onclick="closeModal('modal-instance-manage')">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="modal-body" id="instance-manage-body"></div>
+  </div>
+</div>
 
 <!-- ── Subfolder search results ────────────────────────────────────────────── -->
 <div id="modal-search" class="modal-overlay hidden" onclick="if(event.target===this) closeModal('modal-search')">
