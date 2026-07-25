@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.13] - 2026-07-25
+
+### Changed
+- Simplified the Transfers page to the two relevant subfolder views:
+  **Subfolder Transfers — In Progress** and **Subfolder Transfers — Completed**.
+  They are now equal-width tabs above a single full-width table, so only one
+  dataset is visible at a time; the previous per-instance main-folder transfer
+  tables were removed.
+- Each transfer tab has a count badge anchored at a consistent position. Counts
+  update with live polling while the selected tab is preserved, including an
+  In Progress count of `0` once all transfers are complete.
+
 ## [0.3.12] - 2026-07-25
 
 ### Added

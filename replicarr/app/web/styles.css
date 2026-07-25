@@ -657,6 +657,53 @@ body {
 .stat-value { font-size: 22px; font-weight: 800; margin: 3px 0 1px; letter-spacing: -0.02em; }
 .stat-sub   { font-size: 11px; color: var(--text-2); }
 
+/* ── Subfolder transfer tabs ──────────────────────────────────────────────── */
+.transfer-view { width: 100%; }
+.transfer-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  border-bottom: 1px solid var(--border);
+}
+.transfer-tab {
+  position: relative;
+  min-width: 0;
+  border: 0;
+  padding: 13px 54px 13px 16px;
+  background: var(--bg);
+  color: var(--text-2);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+.transfer-tab + .transfer-tab { border-left: 1px solid var(--border); }
+.transfer-tab:hover { color: var(--text); }
+.transfer-tab.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: inset 0 -3px 0 var(--accent);
+}
+.transfer-tab-badge {
+  position: absolute;
+  top: 50%;
+  right: 16px;
+  min-width: 24px;
+  padding: 2px 7px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: var(--border);
+  color: var(--text-2);
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+}
+.transfer-tab.active .transfer-tab-badge {
+  background: var(--accent-lt);
+  color: var(--accent);
+}
+.transfer-empty { padding: 42px 20px; }
+
 /* ── Badge ─────────────────────────────────────────────────────────────────── */
 .badge-config {
   font-size: 10px;

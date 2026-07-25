@@ -85,6 +85,7 @@ let folderOrders = {};    // { instance_id: [folder_id, ...] }, persisted server
 let selectedInstId  = null;
 let selectedFolderId = null;
 let _folderDragActive = false;
+let _transferTab = "progress";
 
 // ── Polling ───────────────────────────────────────────────────────────────────
 // An SSE-pushed live feed briefly replaced this polling loop, but it kept
@@ -744,50 +745,11 @@ function renderTransfers() {
       <div class="stat-sub">estimate</div>
     </div>`;
 
-  let html = "";
-  for (const inst of transferData.instances || []) {
-    const instName = statusData.find(i => i.id === inst.instanceId)?.name || inst.instanceId;
-    if (inst.offline) {
-      html += `<div class="file-table-wrap mb-12" style="margin-bottom:12px">
-        <div class="file-table-header">${esc(instName)}</div>
-        <div class="offline-row" style="padding:12px 20px;color:var(--red)">⚠ Offline</div>
-      </div>`;
-      continue;
-    }
-    html += `<div class="file-table-wrap" style="margin-bottom:12px">
-      <div class="file-table-header"><span class="section-title">${esc(instName)}</span></div>
-      <table class="table"><thead><tr>
-        <th style="width:35%">Folder</th>
-        <th style="width:15%">Status</th>
-        <th style="width:25%">Progress</th>
-        <th style="width:15%">Speed <span class="text-3">(approx)</span></th>
-        <th style="width:10%">ETA</th>
-      </tr></thead><tbody>`;
-    for (const f of inst.folders || []) {
-      if (f.error) { html += `<tr><td colspan="5" class="offline-row" style="padding:10px 20px">${esc(f.id)}: ${esc(f.error)}</td></tr>`; continue; }
-      const pct2 = f.percent ?? 100;
-      const fc2  = pct2 >= 100 ? "complete" : "";
-      html += `<tr>
-        <td><div class="td-name"><div class="td-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>${esc(f.label || f.id)}</div></td>
-        <td>${chip(f.state, f.paused)}</td>
-        <td><div class="progress-bar"><div class="progress-fill ${fc2}" style="width:${pct2}%"></div></div><div class="text-xs text-2 mt-4">${pct2}% · ${fmtBytes(f.needBytes)} left</div></td>
-        <td class="text-sm">${fmtSpeed(f.speedBytesPerSec)}</td>
-        <td class="text-sm">${fmtEta(f.etaSeconds)}</td>
-      </tr>`;
-    }
-    html += `</tbody></table></div>`;
-  }
-  $("#transfer-folders").innerHTML = html;
-
   renderSubfolderTransfers();
 }
 
 function renderSubfolderTransfers() {
   const el = $("#subfolder-transfers");
-  if (!subfolderTransfersData.length) {
-    el.innerHTML = '<div class="text-sm text-2" style="padding:4px 0 12px">No subfolders have been pushed yet — push one from a folder\'s detail panel on the Overview tab.</div>';
-    return;
-  }
 
   const row = (t) => {
     if (t.state === "error") {
@@ -807,22 +769,42 @@ function renderSubfolderTransfers() {
     </tr>`;
   };
 
-  const table = (title, rows) => !rows.length ? "" : `
-    <div class="file-table-wrap" style="margin-bottom:12px">
-      <div class="file-table-header"><span class="section-title">${title}</span></div>
-      <table class="table"><thead><tr>
+  const table = (rows, emptyMessage) => !rows.length
+    ? `<div class="empty-state transfer-empty"><h3>${emptyMessage}</h3></div>`
+    : `<table class="table"><thead><tr>
         <th style="width:26%">Subfolder</th>
         <th style="width:18%">From → To</th>
         <th style="width:10%">Size</th>
         <th style="width:24%">Progress</th>
         <th style="width:12%">Speed <span class="text-3">(approx)</span></th>
         <th style="width:10%">ETA</th>
-      </tr></thead><tbody>${rows.map(row).join("")}</tbody></table>
-    </div>`;
+      </tr></thead><tbody>${rows.map(row).join("")}</tbody></table>`;
 
   const inProgress = subfolderTransfersData.filter(t => t.state !== "complete");
   const completed  = subfolderTransfersData.filter(t => t.state === "complete");
-  el.innerHTML = table("Subfolder Transfers — In Progress", inProgress) + table("Subfolder Transfers — Completed", completed);
+  const visibleRows = _transferTab === "completed" ? completed : inProgress;
+  const emptyMessage = _transferTab === "completed"
+    ? "No completed subfolder transfers"
+    : "No subfolder transfers in progress";
+  el.innerHTML = `
+    <div class="file-table-wrap transfer-view">
+      <div class="transfer-tabs">
+        <button class="transfer-tab ${_transferTab === "progress" ? "active" : ""}" onclick="setTransferTab('progress')">
+          <span>Subfolder Transfers — In Progress</span>
+          <span class="transfer-tab-badge">${inProgress.length}</span>
+        </button>
+        <button class="transfer-tab ${_transferTab === "completed" ? "active" : ""}" onclick="setTransferTab('completed')">
+          <span>Subfolder Transfers — Completed</span>
+          <span class="transfer-tab-badge">${completed.length}</span>
+        </button>
+      </div>
+      ${table(visibleRows, emptyMessage)}
+    </div>`;
+}
+
+function setTransferTab(tab) {
+  _transferTab = tab === "completed" ? "completed" : "progress";
+  renderSubfolderTransfers();
 }
 
 // ── Instances tab ─────────────────────────────────────────────────────────────
@@ -1404,5 +1386,6 @@ Object.assign(window, {
   openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,
   searchSubfolders, revealSearchResult, pushSearchResult, toggleSubfolderRow,
   openPushModal, renderPushPathChoices, selectPushTargetPath, executePush,
+  setTransferTab,
   closeModal, poll,
 });
