@@ -34,16 +34,11 @@
     </nav>
     <div class="topbar-spacer"></div>
     <div class="topbar-search">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
       <input id="subfolder-search-query" type="search" placeholder="Search subfolders…" onkeydown="if(event.key==='Enter') searchSubfolders()" />
-      <button type="button" title="Search subfolders" onclick="searchSubfolders()">Search</button>
+      <button type="button" title="Search subfolders" aria-label="Search subfolders" onclick="searchSubfolders()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      </button>
     </div>
-    <button class="btn-theme" id="btn-sidebar-toggle" title="Toggle sidebar" onclick="toggleSidebar()">
-      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <rect x="3" y="4" width="18" height="16" rx="2"/>
-        <line x1="9.5" y1="4" x2="9.5" y2="20"/>
-      </svg>
-    </button>
     <button class="btn-theme" id="btn-theme" title="Toggle dark mode" onclick="toggleTheme()">
       <!-- Moon (shown in light mode) -->
       <svg class="icon-moon" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -59,33 +54,6 @@
       </svg>
     </button>
   </header>
-
-  <!-- ── Sidebar ─────────────────────────────────────────────────────────────── -->
-  <aside class="sidebar">
-    <div class="sidebar-section">
-      <button class="sidebar-item active" data-tab="overview" onclick="switchTab('overview')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-        All Instances
-        <span class="count" id="sb-count">0</span>
-      </button>
-      <button class="sidebar-item" data-tab="transfers" onclick="switchTab('transfers')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 17l4 4 4-4"/><path d="M12 12v9"/><path d="M16 7l-4-4-4 4"/><path d="M12 3v5"/></svg>
-        Transfers
-      </button>
-      <button class="sidebar-item" data-tab="instances" onclick="switchTab('instances')">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M20 21a8 8 0 1 0-16 0"/></svg>
-        Manage Instances
-      </button>
-    </div>
-
-    <div class="sidebar-spacer"></div>
-    <div class="sidebar-bottom">
-      <button class="sidebar-item" onclick="openSettingsModal()">
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
-        Settings
-      </button>
-    </div>
-  </aside>
 
   <!-- ── Main ────────────────────────────────────────────────────────────────── -->
   <div class="main">
@@ -356,50 +324,6 @@
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeModal('modal-push')">Close</button>
       <button id="modal-push-btn" class="btn btn-primary" onclick="executePush()">Push Subfolder</button>
-    </div>
-  </div>
-</div>
-
-<!-- ── Settings modal ────────────────────────────────────────────────────────── -->
-<div id="modal-settings" class="modal-overlay hidden">
-  <div class="modal" style="width:420px">
-    <div class="modal-header">
-      <span class="modal-title">Settings</span>
-      <button class="btn-icon" onclick="closeModal('modal-settings')">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-      </button>
-    </div>
-    <div class="modal-body">
-      <div class="field">
-        <label>Theme</label>
-        <select id="settings-theme" onchange="onSettingsThemeChange()">
-          <option value="system">Follow system</option>
-          <option value="light">Light</option>
-          <option value="dark">Dark</option>
-        </select>
-      </div>
-      <div class="field">
-        <label>Default tab on load</label>
-        <select id="settings-default-tab" onchange="onSettingsDefaultTabChange()">
-          <option value="overview">Overview</option>
-          <option value="transfers">Transfers</option>
-          <option value="instances">Instances</option>
-        </select>
-      </div>
-      <div class="field">
-        <label class="flex items-center gap-8" style="cursor:pointer;font-weight:500">
-          <input type="checkbox" id="settings-sidebar-collapsed" onchange="onSettingsSidebarChange()" />
-          Start with sidebar collapsed
-        </label>
-      </div>
-      <div class="alert alert-info mt-12">
-        These are saved in this browser only. Server-side options — log level,
-        direct-access Basic Auth, and pre-configured instances — are managed
-        from this add-on's own Configuration page in Home Assistant.
-      </div>
-    </div>
-    <div class="modal-footer">
-      <button class="btn btn-ghost" onclick="closeModal('modal-settings')">Close</button>
     </div>
   </div>
 </div>

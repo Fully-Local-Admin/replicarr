@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.15] - 2026-07-26
+
+### Removed
+- Removed the left sidebar and its collapse control. The existing top navigation
+  now provides the only route between Overview, Transfers, and Instances.
+- Removed the Settings modal and its sidebar/default-tab preferences. Replicarr
+  now opens on Overview, while the top-bar theme toggle remains available.
+
+### Changed
+- Replaced the top-bar search button text with a compact, accessible search
+  icon. Pressing Enter in the search field continues to submit the search.
+
 ## [0.3.14] - 2026-07-26
 
 ### Added

@@ -109,7 +109,6 @@ async function poll() {
 }
 
 function applyPoll() {
-  updateSidebarCount();
   if (activeTab === "overview")   renderOverview();
   if (activeTab === "transfers")  renderTransfers();
   if (activeTab === "instances")  renderInstancesTab();
@@ -119,7 +118,7 @@ function applyPoll() {
 // ── Tab routing ───────────────────────────────────────────────────────────────
 function switchTab(tab) {
   activeTab = tab;
-  $$(".topbar-tab, .sidebar-item").forEach(el => {
+  $$(".topbar-tab").forEach(el => {
     el.classList.toggle("active", el.dataset.tab === tab);
   });
   $$(".tab-panel").forEach(el =>
@@ -128,11 +127,6 @@ function switchTab(tab) {
   if (tab === "overview")   renderOverview();
   if (tab === "transfers")  renderTransfers();
   if (tab === "instances")  renderInstancesTab();
-}
-
-// ── Sidebar count ─────────────────────────────────────────────────────────────
-function updateSidebarCount() {
-  $("#sb-count").textContent = instances.length;
 }
 
 // ── Overview tab ──────────────────────────────────────────────────────────────
@@ -1392,7 +1386,6 @@ function closeModal(id) { $(`#${id}`).classList.add("hidden"); }
 
 async function loadInstances() {
   instances = await api("api/instances");
-  updateSidebarCount();
   renderInstancesTab();
 }
 
@@ -1410,56 +1403,16 @@ function toggleTheme() {
   localStorage.setItem("replicarr-theme", dark ? "dark" : "light");
 }
 
-// ── Sidebar toggle ────────────────────────────────────────────────────────────
-function applySidebar(collapsed) {
-  $(".app").classList.toggle("sidebar-collapsed", collapsed);
-}
-function toggleSidebar() {
-  const collapsed = !$(".app").classList.contains("sidebar-collapsed");
-  applySidebar(collapsed);
-  localStorage.setItem("replicarr-sidebar-collapsed", collapsed ? "1" : "0");
-}
-
-// ── Settings modal ────────────────────────────────────────────────────────────
-function openSettingsModal() {
-  $("#settings-theme").value = localStorage.getItem("replicarr-theme") || "system";
-  $("#settings-default-tab").value = localStorage.getItem("replicarr-default-tab") || "overview";
-  $("#settings-sidebar-collapsed").checked = localStorage.getItem("replicarr-sidebar-collapsed") === "1";
-  $("#modal-settings").classList.remove("hidden");
-}
-
-function onSettingsThemeChange() {
-  const v = $("#settings-theme").value;
-  if (v === "system") {
-    localStorage.removeItem("replicarr-theme");
-    applyTheme(window.matchMedia("(prefers-color-scheme: dark)").matches);
-  } else {
-    localStorage.setItem("replicarr-theme", v);
-    applyTheme(v === "dark");
-  }
-}
-
-function onSettingsDefaultTabChange() {
-  localStorage.setItem("replicarr-default-tab", $("#settings-default-tab").value);
-}
-
-function onSettingsSidebarChange() {
-  const collapsed = $("#settings-sidebar-collapsed").checked;
-  localStorage.setItem("replicarr-sidebar-collapsed", collapsed ? "1" : "0");
-  applySidebar(collapsed);
-}
-
 // ── Boot ──────────────────────────────────────────────────────────────────────
 (async () => {
-  // Apply saved theme/sidebar state before first render to avoid a flash
+  // Apply the saved theme before first render to avoid a flash.
   const saved = localStorage.getItem("replicarr-theme");
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   applyTheme(saved ? saved === "dark" : prefersDark);
-  applySidebar(localStorage.getItem("replicarr-sidebar-collapsed") === "1");
 
   await Promise.all([loadInstances(), loadFolderOrders()]);
   await poll();
-  switchTab(localStorage.getItem("replicarr-default-tab") || "overview");
+  switchTab("overview");
   // Poll on a timer — see the note above poll()'s definition for why this
   // isn't a push-based live feed.
   setInterval(poll, 3000);
@@ -1467,8 +1420,7 @@ function onSettingsSidebarChange() {
 
 // Expose for inline handlers (includes renderFolderTable used in detail panel onclick strings)
 Object.assign(window, {
-  toggleTheme, toggleSidebar,
-  openSettingsModal, onSettingsThemeChange, onSettingsDefaultTabChange, onSettingsSidebarChange,
+  toggleTheme,
   switchTab, selectInstance, selectFolder, renderFolderTable, closeDetail, detailTab,
   openProblemResolution,
   startFolderDrag, dragOverFolderRow, finishFolderDrag,
