@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.21] - 2026-07-26
+
+### Fixed
+- Problem-banner information tooltips are now anchored within the full banner
+  instead of extending from an individual warning near the screen edge.
+- Tooltip width is constrained to the available content width, and its contents
+  scroll vertically when necessary on short viewports, keeping the entire
+  tooltip accessible.
+
 ## [0.3.20] - 2026-07-26
 
 ### Changed
