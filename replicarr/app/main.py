@@ -153,6 +153,7 @@ async def _refresh_subfolder_transfer(
         "folderId": push["folder_id"],
         "folderLabel": push.get("folder_label", push["folder_id"]),
         "subfolderPath": push["subfolder_path"],
+        "targetPath": push.get("target_path", ""),
         "totalBytes": push.get("total_bytes", 0),
     }
     if target_inst is None:

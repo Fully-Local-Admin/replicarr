@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.3.10] - 2026-07-25
+
+### Added
+- The subfolder push dialog now remembers successful destination paths per
+  target instance and offers them in a dropdown on future pushes. Existing
+  push history supplies the saved choices automatically, while **Enter another
+  path…** keeps manual entry available and successful new paths are remembered
+  without a separate settings step.
+
 ## [0.3.9] - 2026-07-25
 
 ### Changed

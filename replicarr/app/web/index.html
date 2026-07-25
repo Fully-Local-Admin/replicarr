@@ -329,8 +329,9 @@
       </div>
       <div class="field">
         <label>Path on target</label>
+        <select id="modal-push-path-saved" class="hidden" onchange="selectPushTargetPath()"></select>
         <input id="modal-push-path" type="text" placeholder="/data/syncthing/my-docs" />
-        <div class="field-hint">Where the main folder will live on the target. Only needed the first time you push a subfolder of this folder to this instance — leave blank if you've already pushed one here before.</div>
+        <div class="field-hint">Where the main folder will live on the target. Successful paths are remembered per target and offered here next time. Leave blank if this folder is already configured on that target.</div>
       </div>
       <div id="modal-push-steps" class="hidden mt-12"></div>
     </div>

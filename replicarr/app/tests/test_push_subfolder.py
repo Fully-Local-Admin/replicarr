@@ -219,6 +219,7 @@ def test_subfolder_transfer_progress_is_scoped_to_the_pushed_subfolder(client, f
     assert t["sourceInstanceName"] == "Source"
     assert t["targetInstanceName"] == "Target"
     assert t["subfolderPath"] == "TV Shows/Paradise"
+    assert t["targetPath"] == "/data/tv"
     assert t["totalBytes"] == 1000
     assert t["needBytes"] == 400
     assert t["percent"] == 60.0

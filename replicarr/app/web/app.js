@@ -1059,12 +1059,53 @@ function openPushModal(e, instId, folderId, subfolderPath) {
   $("#modal-push-source").textContent = inst?.name || instId;
   const sel = $("#modal-push-target");
   sel.innerHTML = targets.map(i => `<option value="${esc(i.id)}">${esc(i.name)}</option>`).join("");
-  $("#modal-push-path").value = "";
+  sel.onchange = renderPushPathChoices;
+  renderPushPathChoices();
   $("#modal-push-steps").classList.add("hidden");
   $("#modal-push-steps").innerHTML = "";
   $("#modal-push-error").classList.add("hidden");
   $("#modal-push-btn").disabled = false;
   $("#modal-push").classList.remove("hidden");
+}
+
+function renderPushPathChoices() {
+  const targetId = $("#modal-push-target").value;
+  const paths = [...new Set(
+    subfolderTransfersData
+      .filter(t => t.targetInstanceId === targetId && t.targetPath)
+      .map(t => t.targetPath)
+  )].sort();
+  const saved = $("#modal-push-path-saved");
+  const input = $("#modal-push-path");
+
+  input.value = "";
+  if (!paths.length) {
+    saved.classList.add("hidden");
+    input.classList.remove("hidden");
+    return;
+  }
+
+  saved.innerHTML = `
+    <option value="">Leave blank / use existing mapping</option>
+    ${paths.map(path => `<option value="${esc(path)}">${esc(path)}</option>`).join("")}
+    <option value="__custom__">Enter another path…</option>
+  `;
+  saved.value = "";
+  saved.classList.remove("hidden");
+  input.classList.add("hidden");
+}
+
+function selectPushTargetPath() {
+  const saved = $("#modal-push-path-saved");
+  const input = $("#modal-push-path");
+  if (saved.value === "__custom__") {
+    input.value = "";
+    input.classList.remove("hidden");
+    input.focus();
+    return;
+  }
+  input.value = saved.value;
+  input.classList.add("hidden");
 }
 
 async function executePush() {
@@ -1200,6 +1241,6 @@ Object.assign(window, {
   openAddDiscoveredDevice,
   deleteInstance, testInstance,
   openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,
-  toggleSubfolderRow, openPushModal, executePush,
+  toggleSubfolderRow, openPushModal, renderPushPathChoices, selectPushTargetPath, executePush,
   closeModal, poll,
 });
