@@ -31,6 +31,50 @@ def test_normalize_browse_entries_no_prefix():
     assert entries == [{"name": "TV Shows", "path": "TV Shows", "type": "dir"}]
 
 
+def test_normalize_browse_entries_v1_mapping_shape():
+    raw = {
+        "Paradise": {},
+        "notes.txt": ["2026-01-01T00:00:00Z", 20],
+    }
+    assert main._normalize_browse_entries(raw, "TV Shows") == [
+        {"name": "Paradise", "path": "TV Shows/Paradise", "type": "dir"},
+        {"name": "notes.txt", "path": "TV Shows/notes.txt", "type": "file"},
+    ]
+
+
+def test_flatten_browse_directories_v1_tree_shape():
+    raw = {
+        "TV Shows": {
+            "Paradise": {
+                "Season 1": {},
+                "episode.mkv": ["2026-01-01T00:00:00Z", 100],
+            },
+        },
+        "root-file.txt": ["2026-01-01T00:00:00Z", 20],
+    }
+    assert main._flatten_browse_directories(raw) == [
+        {"name": "TV Shows", "path": "TV Shows"},
+        {"name": "Paradise", "path": "TV Shows/Paradise"},
+        {"name": "Season 1", "path": "TV Shows/Paradise/Season 1"},
+    ]
+
+
+def test_flatten_browse_directories_v2_list_shape():
+    raw = [{
+        "name": "TV Shows",
+        "type": "FILE_INFO_TYPE_DIRECTORY",
+        "children": [{
+            "name": "Paradise",
+            "type": "FILE_INFO_TYPE_DIRECTORY",
+            "children": [],
+        }],
+    }]
+    assert main._flatten_browse_directories(raw) == [
+        {"name": "TV Shows", "path": "TV Shows"},
+        {"name": "Paradise", "path": "TV Shows/Paradise"},
+    ]
+
+
 def test_sum_browse_size_flat_files():
     raw = [{"name": "a", "size": 100}, {"name": "b", "size": 250}]
     assert main._sum_browse_size(raw) == 350

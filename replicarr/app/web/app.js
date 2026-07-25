@@ -512,6 +512,97 @@ async function renderSubfolderBrowser(instId, folderId, containerEl, prefix) {
   }
 }
 
+async function searchSubfolders() {
+  const query = $("#subfolder-search-query").value.trim();
+  const resultsEl = $("#subfolder-search-results");
+  $("#modal-search").classList.remove("hidden");
+  if (query.length < 2) {
+    resultsEl.innerHTML = '<div class="alert alert-info">Enter at least 2 characters.</div>';
+    return;
+  }
+
+  resultsEl.innerHTML = '<div class="loading-row">Searching subfolders…</div>';
+  try {
+    const response = await api(`api/search/subfolders?q=${encodeURIComponent(query)}`);
+    if (!response.results.length) {
+      resultsEl.innerHTML = `
+        <div class="empty-state" style="padding:28px 12px">
+          <h3>No matching subfolders</h3>
+          <p>Searched ${response.searchedFolders} online folder${response.searchedFolders === 1 ? "" : "s"}.</p>
+        </div>`;
+      return;
+    }
+
+    resultsEl.innerHTML = `
+      ${response.failedFolders ? `<div class="alert alert-info mb-12">${response.failedFolders} folder${response.failedFolders === 1 ? "" : "s"} could not be searched.</div>` : ""}
+      ${response.truncated ? '<div class="alert alert-info mb-12">Showing the first 100 matches. Use a more specific search to narrow the results.</div>' : ""}
+      ${response.results.map(result => `
+        <div class="search-result"
+             data-instance-id="${esc(result.instanceId)}"
+             data-folder-id="${esc(result.folderId)}"
+             data-path="${esc(result.path)}">
+          <div class="search-result-main">
+            <div class="search-result-name">${esc(result.name)}</div>
+            <div class="search-result-path">${esc(result.instanceName)} · ${esc(result.folderLabel)} · ${esc(result.path)}</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="revealSearchResult(this.closest('.search-result'))">Show in folder</button>
+          <button class="btn btn-primary btn-sm" onclick="pushSearchResult(this.closest('.search-result'))">Push →</button>
+        </div>`).join("")}
+    `;
+  } catch (e) {
+    resultsEl.innerHTML = `<div class="alert alert-error">Search failed: ${esc(e.message)}</div>`;
+  }
+}
+
+function pushSearchResult(row) {
+  closeModal("modal-search");
+  openPushModal(null, row.dataset.instanceId, row.dataset.folderId, row.dataset.path);
+}
+
+async function revealSearchResult(row) {
+  const instId = row.dataset.instanceId;
+  const folderId = row.dataset.folderId;
+  const path = row.dataset.path;
+  closeModal("modal-search");
+  switchTab("overview");
+  selectedInstId = instId;
+  selectedFolderId = folderId;
+  renderQuickCards();
+  renderFolderTable();
+  openDetailPanel("folder", instId, folderId);
+
+  const root = $("#subfolder-browser");
+  if (!root) return;
+  await renderSubfolderBrowser(instId, folderId, root, "");
+
+  let container = root;
+  let currentPath = "";
+  const parts = path.split("/").filter(Boolean);
+  for (let index = 0; index < parts.length; index++) {
+    currentPath = currentPath ? `${currentPath}/${parts[index]}` : parts[index];
+    const match = [...container.children].find(
+      child => child.classList.contains("subfolder-row") && child.dataset.path === currentPath
+    );
+    if (!match) return;
+    if (index === parts.length - 1) {
+      match.classList.add("search-highlight");
+      match.scrollIntoView({ behavior: "smooth", block: "center" });
+      setTimeout(() => match.classList.remove("search-highlight"), 3000);
+      return;
+    }
+
+    const children = match.querySelector(".subfolder-children");
+    const chevron = match.querySelector(".subfolder-chevron");
+    children.classList.remove("hidden");
+    chevron?.classList.add("open");
+    if (!children.dataset.loaded) {
+      children.dataset.loaded = "1";
+      await renderSubfolderBrowser(instId, folderId, children, currentPath);
+    }
+    container = children;
+  }
+}
+
 function toggleSubfolderRow(toggleEl, instId, folderId) {
   const row = toggleEl.closest(".subfolder-row");
   const childrenEl = row.querySelector(".subfolder-children");
@@ -1241,6 +1332,7 @@ Object.assign(window, {
   openAddDiscoveredDevice,
   deleteInstance, testInstance,
   openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,
-  toggleSubfolderRow, openPushModal, renderPushPathChoices, selectPushTargetPath, executePush,
+  searchSubfolders, revealSearchResult, pushSearchResult, toggleSubfolderRow,
+  openPushModal, renderPushPathChoices, selectPushTargetPath, executePush,
   closeModal, poll,
 });

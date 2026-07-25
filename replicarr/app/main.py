@@ -941,6 +941,16 @@ def _normalize_browse_entries(raw: Any, prefix: str) -> list[dict[str, Any]]:
     place to check against what Syncthing actually returns.
     """
     entries: list[dict[str, Any]] = []
+    if isinstance(raw, dict) and "name" not in raw and "Name" not in raw:
+        for name, value in raw.items():
+            full_path = f"{prefix}/{name}".strip("/") if prefix else name
+            entries.append({
+                "name": name,
+                "path": full_path,
+                "type": "dir" if isinstance(value, dict) else "file",
+            })
+        return entries
+
     items = raw if isinstance(raw, list) else [raw] if isinstance(raw, dict) else []
     for item in items:
         if not isinstance(item, dict):
@@ -961,6 +971,42 @@ def _normalize_browse_entries(raw: Any, prefix: str) -> list[dict[str, Any]]:
     return entries
 
 
+def _flatten_browse_directories(raw: Any, prefix: str = "") -> list[dict[str, str]]:
+    """Flatten recursive v1 tree and v2 list-style browse responses to directories."""
+    entries: list[dict[str, str]] = []
+
+    if isinstance(raw, list):
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name") or item.get("Name") or ""
+            if not name:
+                continue
+            full_path = name if prefix and name.startswith(f"{prefix}/") else (
+                f"{prefix}/{name}".strip("/") if prefix else name
+            )
+            item_type = str(item.get("type") or item.get("Type") or "").upper()
+            children = item.get("children", item.get("Children"))
+            if "DIR" in item_type or children is not None:
+                entries.append({"name": full_path.rsplit("/", 1)[-1], "path": full_path})
+                if children is not None:
+                    entries.extend(_flatten_browse_directories(children, full_path))
+        return entries
+
+    if isinstance(raw, dict):
+        if "name" in raw or "Name" in raw:
+            return _flatten_browse_directories([raw], prefix)
+
+        # Syncthing v1 represents a tree as {name: subtree}; file values are arrays.
+        for name, value in raw.items():
+            if not isinstance(value, dict):
+                continue
+            full_path = f"{prefix}/{name}".strip("/") if prefix else name
+            entries.append({"name": name, "path": full_path})
+            entries.extend(_flatten_browse_directories(value, full_path))
+    return entries
+
+
 @app.get("/api/folders/{inst_id}/{folder_id}/browse")
 async def browse_folder(inst_id: str, folder_id: str, prefix: str = ""):
     """Lists subfolders (not files) one level under `prefix` — used to pick a subfolder to push."""
@@ -973,6 +1019,59 @@ async def browse_folder(inst_id: str, folder_id: str, prefix: str = ""):
         raise HTTPException(500, str(e))
     entries = [e for e in _normalize_browse_entries(raw, prefix) if e["type"] == "dir"]
     return {"prefix": prefix, "entries": entries}
+
+
+@app.get("/api/search/subfolders")
+async def search_subfolders(q: str):
+    """Search directory paths across online managed folders on explicit request."""
+    query = q.strip().casefold()
+    if len(query) < 2:
+        raise HTTPException(400, "Enter at least 2 characters")
+
+    instances = {i["id"]: i for i in store.load_instances()}
+    jobs: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for status in _status_cache:
+        inst = instances.get(status["id"])
+        if not inst or not status.get("online"):
+            continue
+        jobs.extend((inst, folder) for folder in status.get("folders", []))
+
+    async def search_folder(inst: dict[str, Any], folder: dict[str, Any]) -> list[dict[str, str]]:
+        raw = await st.get_db_browse(
+            inst["url"], inst["api_key"], folder["id"], prefix="", levels=None
+        )
+        return [
+            {
+                "instanceId": inst["id"],
+                "instanceName": inst["name"],
+                "folderId": folder["id"],
+                "folderLabel": folder.get("label", folder["id"]),
+                "name": entry["name"],
+                "path": entry["path"],
+            }
+            for entry in _flatten_browse_directories(raw)
+            if query in entry["path"].casefold()
+        ]
+
+    searched = await asyncio.gather(
+        *(search_folder(inst, folder) for inst, folder in jobs),
+        return_exceptions=True,
+    )
+    matches: list[dict[str, str]] = []
+    failed_folders = 0
+    for result in searched:
+        if isinstance(result, BaseException):
+            failed_folders += 1
+        else:
+            matches.extend(result)
+    matches.sort(key=lambda m: (m["name"].casefold(), m["path"].casefold()))
+    limit = 100
+    return {
+        "results": matches[:limit],
+        "truncated": len(matches) > limit,
+        "searchedFolders": len(jobs),
+        "failedFolders": failed_folders,
+    }
 
 
 def _sum_browse_size(raw: Any) -> int:

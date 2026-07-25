@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.3.11] - 2026-07-25
+
+### Added
+- Replaced the non-functional search placeholder with real subfolder search
+  across all online managed folders. Search runs only when submitted, supports
+  both Syncthing browse response formats, caps results at 100, and reports
+  folders that could not be searched.
+- Search results provide **Push** to open the existing subfolder push workflow
+  directly, and **Show in folder** to open the correct instance and main
+  folder, expand the matching subfolder's ancestors, scroll it into view, and
+  highlight it.
+
 ## [0.3.10] - 2026-07-25
 
 ### Added

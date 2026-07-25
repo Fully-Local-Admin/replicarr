@@ -167,7 +167,7 @@ async def post_db_scan(url: str, api_key: str, folder_id: str) -> None:
 
 
 async def get_db_browse(
-    url: str, api_key: str, folder_id: str, prefix: str = "", levels: int = 1
+    url: str, api_key: str, folder_id: str, prefix: str = "", levels: int | None = 1
 ) -> list[dict[str, Any]]:
     """
     Lists the contents of a folder at `prefix` (one level by default).
@@ -176,10 +176,10 @@ async def get_db_browse(
     of this as the thing to double-check if subfolder browsing looks wrong.
     """
     async with _client(url, api_key) as c:
-        r = await c.get(
-            "/rest/db/browse",
-            params={"folder": folder_id, "prefix": prefix, "levels": levels},
-        )
+        params: dict[str, Any] = {"folder": folder_id, "prefix": prefix}
+        if levels is not None:
+            params["levels"] = levels
+        r = await c.get("/rest/db/browse", params=params)
         r.raise_for_status()
         return r.json()
 

@@ -107,6 +107,27 @@ def test_browse_lists_only_directories(client):
     assert all(e["type"] == "dir" for e in entries)
 
 
+def test_search_subfolders_returns_actionable_location(client, monkeypatch):
+    monkeypatch.setattr(main, "_status_cache", [{
+        "id": "source",
+        "online": True,
+        "folders": [{"id": "tvshows", "label": "TV Shows"}],
+    }])
+    r = client.get("/api/search/subfolders?q=paradise", headers=HDR)
+    assert r.status_code == 200
+    data = r.json()
+    assert data["failedFolders"] == 0
+    assert data["truncated"] is False
+    assert data["results"] == [{
+        "instanceId": "source",
+        "instanceName": "Source",
+        "folderId": "tvshows",
+        "folderLabel": "TV Shows",
+        "name": "Paradise",
+        "path": "Paradise",
+    }]
+
+
 def test_push_subfolder_requires_target_path_on_first_push(client):
     r = client.post(
         "/api/folders/source/tvshows/push-subfolder",

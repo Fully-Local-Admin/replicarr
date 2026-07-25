@@ -157,6 +157,27 @@ body {
   color: var(--text-2);
   font-size: 13px;
 }
+.topbar-search input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+}
+.topbar-search input::placeholder { color: var(--text-3); }
+.topbar-search button {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
 
 /* ── Sidebar ───────────────────────────────────────────────────────────────── */
 .sidebar {
@@ -773,6 +794,28 @@ body {
 .subfolder-chevron { color: var(--text-3); flex-shrink: 0; transition: transform 0.15s; }
 .subfolder-chevron.open { transform: rotate(90deg); }
 .subfolder-children { padding-left: 19px; }
+.subfolder-row.search-highlight > .subfolder-row-main {
+  background: var(--accent-lt);
+  outline: 2px solid var(--accent);
+}
+.search-result {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.search-result:last-child { border-bottom: 0; }
+.search-result-main { flex: 1; min-width: 0; }
+.search-result-name { font-size: 13px; font-weight: 700; }
+.search-result-path {
+  overflow: hidden;
+  color: var(--text-2);
+  font-family: monospace;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 /* ── Confirm summary box ───────────────────────────────────────────────────── */
 .confirm-summary {
