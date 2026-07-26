@@ -688,18 +688,20 @@ body {
 /* ── Stat boxes (transfers) ────────────────────────────────────────────────── */
 .stat-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  width: 100%;
   gap: 10px;
   margin-bottom: 16px;
 }
 .stat-box {
+  min-width: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 12px 14px;
 }
 .stat-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-3); }
-.stat-value { font-size: 22px; font-weight: 800; margin: 3px 0 1px; letter-spacing: -0.02em; }
+.stat-value { overflow: hidden; font-size: 22px; font-weight: 800; margin: 3px 0 1px; letter-spacing: -0.02em; text-overflow: ellipsis; white-space: nowrap; }
 .stat-sub   { font-size: 11px; color: var(--text-2); }
 
 /* ── Subfolder transfer tabs ──────────────────────────────────────────────── */

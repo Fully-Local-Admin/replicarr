@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.24] - 2026-07-26
+
+### Fixed
+- The four Transfers summary boxes now use exactly four equal columns and span
+  the same full width as the two transfer tabs and their table.
+- Long summary values remain contained within their box instead of widening
+  the layout.
+
 ## [0.3.23] - 2026-07-26
 
 ### Fixed
