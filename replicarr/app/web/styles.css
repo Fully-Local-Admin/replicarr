@@ -647,6 +647,7 @@ body {
 .problem-tooltip strong { margin-top: 8px; font-size: 11px; }
 .problem-tooltip strong:first-child { margin-top: 0; }
 .problem-tooltip .btn { margin-top: 11px; }
+.problem-item.tooltip-open .problem-tooltip,
 .problem-item:hover .problem-tooltip,
 .problem-item:focus-within .problem-tooltip { display: block; }
 .problem-highlight {

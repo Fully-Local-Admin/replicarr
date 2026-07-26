@@ -200,8 +200,10 @@ function renderProblemsBanner() {
 function problemBannerItem(label, meaning, resolution, actionLabel, action) {
   return `<span class="problem-item">
     <span>${label}</span>
-    <button class="problem-info" type="button" aria-label="Help: ${esc(label)}">i</button>
-    <span class="problem-tooltip" role="tooltip">
+    <button class="problem-info" type="button" aria-label="Help: ${esc(label)}"
+            onmouseenter="openProblemTooltip(this)" onmouseleave="scheduleProblemTooltipClose(this)">i</button>
+    <span class="problem-tooltip" role="tooltip"
+          onmouseenter="openProblemTooltip(this)" onmouseleave="scheduleProblemTooltipClose(this)">
       <strong>What it means</strong>
       <span>${esc(meaning)}</span>
       <strong>How to resolve it</strong>
@@ -209,6 +211,23 @@ function problemBannerItem(label, meaning, resolution, actionLabel, action) {
       <button class="btn btn-primary btn-sm" type="button" onclick="openProblemResolution('${action}')">${actionLabel} →</button>
     </span>
   </span>`;
+}
+
+let _problemTooltipCloseTimer = null;
+
+function openProblemTooltip(element) {
+  clearTimeout(_problemTooltipCloseTimer);
+  const item = element.closest(".problem-item");
+  $$(".problem-item.tooltip-open").forEach(openItem => {
+    if (openItem !== item) openItem.classList.remove("tooltip-open");
+  });
+  item?.classList.add("tooltip-open");
+}
+
+function scheduleProblemTooltipClose(element) {
+  clearTimeout(_problemTooltipCloseTimer);
+  const item = element.closest(".problem-item");
+  _problemTooltipCloseTimer = setTimeout(() => item?.classList.remove("tooltip-open"), 350);
 }
 
 function openProblemResolution(type) {
@@ -1461,7 +1480,7 @@ Object.assign(window, {
   toggleTheme,
   toggleDetailPanel,
   switchTab, selectInstance, openInstanceManagement, selectFolder, renderFolderTable, closeDetail, detailTab,
-  openProblemResolution,
+  openProblemResolution, openProblemTooltip, scheduleProblemTooltipClose,
   startFolderDrag, dragOverFolderRow, finishFolderDrag,
   actFolder, actFolderDetail, actDevice, removeFolder, removeDevice,
   openAddInstance, openEditInstance, wizInstNext, wizInstBack,

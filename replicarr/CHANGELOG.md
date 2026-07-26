@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.23] - 2026-07-26
+
+### Fixed
+- Problem-banner tooltips now remain open while moving the cursor from the
+  information icon into the tooltip and for as long as the cursor stays over
+  the tooltip. Keyboard focus behavior is unchanged.
+
 ## [0.3.22] - 2026-07-26
 
 ### Changed
