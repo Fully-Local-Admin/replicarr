@@ -11,8 +11,8 @@ multiple [Syncthing](https://syncthing.net/) instances from one place.
 - Push individual subfolders of a main folder to another instance via Syncthing's selective sync, with automatic rollback if a step fails and a Transfers view of every push in progress or completed
 - Pause, resume, and remove folders; pause, resume, and unshare devices
 - A problems banner surfaces offline instances, folder errors, and disconnected devices at a glance
-- Collapsible sidebar and a Settings panel for theme, default tab, and sidebar preferences
-- Runs behind Home Assistant Ingress, with an optional directly-exposed port (protected by its own Basic Auth) for access from outside Home Assistant
+- Compact top navigation with a toggleable instance/folder details panel
+- Runs behind Home Assistant Ingress, with an optional directly-exposed port protected by an HTTPS form login and expiring session
 
 ## Installation
 
@@ -27,7 +27,7 @@ multiple [Syncthing](https://syncthing.net/) instances from one place.
 |--------|-------------|
 | `log_level` | Backend log verbosity (`info` recommended) |
 | `instances` | Optional list of Syncthing instances to pre-configure |
-| `basic_auth_username` / `basic_auth_password` | Credentials required to reach Replicarr via its directly-exposed port (not Ingress). Leave both blank to keep direct access disabled. |
+| `basic_auth_username` / `basic_auth_password` | Credentials for the autofill-friendly login used on Replicarr's directly-exposed port (not Ingress). Direct login requires HTTPS and sessions expire after 12 hours. Leave both blank to keep direct access disabled. |
 
 Each instance under `instances` needs `name`, `url`, and `api_key`.
 Additional instances can be added at runtime through the dashboard.

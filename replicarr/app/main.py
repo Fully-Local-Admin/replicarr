@@ -8,7 +8,6 @@ The browser talks only to /api/* and the static web/ directory.
 from __future__ import annotations
 
 import asyncio
-import base64
 import ipaddress
 import json
 import logging
@@ -18,11 +17,11 @@ import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -34,13 +33,23 @@ LOG_LEVEL = os.environ.get("LOG_LEVEL", "info").upper()
 logging.basicConfig(level=getattr(logging, LOG_LEVEL, logging.INFO))
 logger = logging.getLogger("replicarr")
 
-# ── Direct-access Basic Auth ────────────────────────────────────────────────────
+# ── Direct-access login sessions ───────────────────────────────────────────────
 # Requests that arrive via Home Assistant Ingress are already authenticated by
 # HA (identified by the X-Ingress-Path header, which only the Supervisor's
 # proxy sets). Requests hitting the add-on's directly-published port carry no
-# such header and no HA session, so they're gated behind Basic Auth instead.
+# such header and no HA session, so they're gated behind a form login instead.
 BASIC_AUTH_USERNAME = os.environ.get("BASIC_AUTH_USERNAME", "")
 BASIC_AUTH_PASSWORD = os.environ.get("BASIC_AUTH_PASSWORD", "")
+SESSION_COOKIE = "replicarr_session"
+SESSION_TTL_SECONDS = 12 * 60 * 60
+LOGIN_WINDOW_SECONDS = 5 * 60
+LOGIN_MAX_FAILURES = 5
+LOGIN_LOCKOUT_SECONDS = 15 * 60
+WEB_DIR = Path(__file__).parent / "web"
+
+_direct_sessions: dict[str, float] = {}
+_login_failures: dict[str, list[float]] = {}
+_login_lockouts: dict[str, float] = {}
 
 # ── Shared status/transfers cache ───────────────────────────────────────────────
 # A single background refresh cycle owns all outbound Syncthing REST calls.
@@ -349,13 +358,79 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Replicarr", lifespan=lifespan)
 
 
-def _unauthorized(detail: str, challenge: bool) -> JSONResponse:
-    headers = {"WWW-Authenticate": 'Basic realm="Replicarr"'} if challenge else None
-    return JSONResponse({"detail": detail}, status_code=401 if challenge else 403, headers=headers)
+def _direct_access_disabled() -> JSONResponse:
+    return JSONResponse(
+        {
+            "detail": "Direct access is disabled. Set 'basic_auth_username' and "
+                      "'basic_auth_password' in the add-on configuration to allow "
+                      "access outside Home Assistant Ingress."
+        },
+        status_code=403,
+    )
+
+
+def _request_is_https(request: Request) -> bool:
+    forwarded = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
+    return request.url.scheme == "https" or forwarded == "https"
+
+
+def _client_key(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+
+def _active_session(request: Request) -> str | None:
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        return None
+    now = time.time()
+    expires_at = _direct_sessions.get(token)
+    if expires_at is None:
+        return None
+    if expires_at <= now:
+        _direct_sessions.pop(token, None)
+        return None
+    return token
+
+
+def _same_origin_request(request: Request) -> bool:
+    fetch_site = request.headers.get("Sec-Fetch-Site", "").lower()
+    if fetch_site == "cross-site":
+        return False
+    origin = request.headers.get("Origin")
+    if not origin:
+        return True
+    expected = f"{request.url.scheme}://{request.url.netloc}"
+    forwarded_proto = request.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip()
+    forwarded_host = request.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip()
+    if forwarded_proto or forwarded_host:
+        expected = f"{forwarded_proto or request.url.scheme}://{forwarded_host or request.url.netloc}"
+    return secrets.compare_digest(origin.rstrip("/"), expected.rstrip("/"))
+
+
+def _login_is_locked(client: str, now: float) -> bool:
+    locked_until = _login_lockouts.get(client, 0)
+    if locked_until > now:
+        return True
+    _login_lockouts.pop(client, None)
+    recent = [stamp for stamp in _login_failures.get(client, []) if now - stamp < LOGIN_WINDOW_SECONDS]
+    if recent:
+        _login_failures[client] = recent
+    else:
+        _login_failures.pop(client, None)
+    return False
+
+
+def _record_login_failure(client: str, now: float) -> None:
+    recent = [stamp for stamp in _login_failures.get(client, []) if now - stamp < LOGIN_WINDOW_SECONDS]
+    recent.append(now)
+    _login_failures[client] = recent
+    if len(recent) >= LOGIN_MAX_FAILURES:
+        _login_lockouts[client] = now + LOGIN_LOCKOUT_SECONDS
+        _login_failures.pop(client, None)
 
 
 @app.middleware("http")
-async def ingress_or_basic_auth(request: Request, call_next):
+async def ingress_or_direct_session(request: Request, call_next):
     ingress_path = request.headers.get("X-Ingress-Path", "")
     if ingress_path:
         # Trusted: only the Supervisor's Ingress proxy sets this header, and
@@ -367,27 +442,18 @@ async def ingress_or_basic_auth(request: Request, call_next):
         return await call_next(request)
 
     if not BASIC_AUTH_USERNAME or not BASIC_AUTH_PASSWORD:
-        return _unauthorized(
-            "Direct access is disabled. Set 'basic_auth_username' and "
-            "'basic_auth_password' in the add-on configuration to allow "
-            "access outside Home Assistant Ingress.",
-            challenge=False,
-        )
+        return _direct_access_disabled()
 
-    auth_header = request.headers.get("Authorization", "")
-    if not auth_header.startswith("Basic "):
-        return _unauthorized("Authentication required.", challenge=True)
+    if request.url.path == "/login":
+        return await call_next(request)
 
-    try:
-        decoded = base64.b64decode(auth_header[6:]).decode("utf-8")
-        user, _, pw = decoded.partition(":")
-    except Exception:
-        return _unauthorized("Invalid Authorization header.", challenge=True)
+    if not _active_session(request):
+        if request.url.path.startswith("/api/") or request.method != "GET":
+            return JSONResponse({"detail": "Authentication required."}, status_code=401)
+        return RedirectResponse(url="./login", status_code=303)
 
-    user_ok = secrets.compare_digest(user, BASIC_AUTH_USERNAME)
-    pw_ok = secrets.compare_digest(pw, BASIC_AUTH_PASSWORD)
-    if not (user_ok and pw_ok):
-        return _unauthorized("Invalid credentials.", challenge=True)
+    if request.method not in {"GET", "HEAD", "OPTIONS"} and not _same_origin_request(request):
+        return JSONResponse({"detail": "Cross-site request refused."}, status_code=403)
 
     return await call_next(request)
 
@@ -396,6 +462,84 @@ async def ingress_or_basic_auth(request: Request, call_next):
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+# ── Direct-access login ────────────────────────────────────────────────────────
+@app.get("/login")
+async def login_page(request: Request):
+    if _active_session(request):
+        return RedirectResponse(url="./", status_code=303)
+    return FileResponse(
+        WEB_DIR / "login.html",
+        headers={"Cache-Control": "no-store", "Pragma": "no-cache"},
+    )
+
+
+@app.post("/login")
+async def login(request: Request):
+    if not _request_is_https(request):
+        return RedirectResponse(url="./login?error=https", status_code=303)
+
+    client = _client_key(request)
+    now = time.time()
+    if _login_is_locked(client, now):
+        return RedirectResponse(url="./login?error=locked", status_code=303)
+
+    try:
+        content_length = int(request.headers.get("Content-Length", "0") or 0)
+    except ValueError:
+        content_length = 8193
+    if content_length > 8192:
+        _record_login_failure(client, now)
+        return RedirectResponse(url="./login?error=invalid", status_code=303)
+
+    try:
+        form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+        username = form.get("username", [""])[0]
+        password = form.get("password", [""])[0]
+    except (UnicodeDecodeError, ValueError):
+        username = password = ""
+
+    user_ok = secrets.compare_digest(username, BASIC_AUTH_USERNAME)
+    password_ok = secrets.compare_digest(password, BASIC_AUTH_PASSWORD)
+    if not (user_ok and password_ok):
+        _record_login_failure(client, now)
+        error = "locked" if _login_is_locked(client, now) else "invalid"
+        return RedirectResponse(url=f"./login?error={error}", status_code=303)
+
+    _login_failures.pop(client, None)
+    _login_lockouts.pop(client, None)
+    for expired_token, expires_at in list(_direct_sessions.items()):
+        if expires_at <= now:
+            _direct_sessions.pop(expired_token, None)
+    token = secrets.token_urlsafe(32)
+    _direct_sessions[token] = now + SESSION_TTL_SECONDS
+    response = RedirectResponse(url="./", status_code=303)
+    response.set_cookie(
+        SESSION_COOKIE,
+        token,
+        max_age=SESSION_TTL_SECONDS,
+        httponly=True,
+        secure=True,
+        samesite="strict",
+        path="/",
+    )
+    return response
+
+
+@app.post("/logout")
+async def logout(request: Request):
+    token = request.cookies.get(SESSION_COOKIE)
+    if token:
+        _direct_sessions.pop(token, None)
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=True, httponly=True, samesite="strict")
+    return response
+
+
+@app.get("/api/auth/session")
+async def auth_session(request: Request):
+    return {"direct": not bool(request.headers.get("X-Ingress-Path", ""))}
 
 
 # ── HA storage discovery ───────────────────────────────────────────────────────

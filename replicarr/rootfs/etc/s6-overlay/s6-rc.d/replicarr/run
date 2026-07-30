@@ -14,7 +14,7 @@ bashio::config 'instances' > /tmp/config_instances.json 2>/dev/null || echo '[]'
 
 bashio::log.info "Log level: ${LOG_LEVEL}"
 if [ -n "${BASIC_AUTH_USERNAME}" ] && [ -n "${BASIC_AUTH_PASSWORD}" ]; then
-    bashio::log.info "Direct (non-Ingress) access is enabled with Basic Auth."
+    bashio::log.info "Direct (non-Ingress) access is enabled with secure session login."
 else
     bashio::log.warning "basic_auth_username/basic_auth_password not set — direct access outside Ingress will be refused."
 fi

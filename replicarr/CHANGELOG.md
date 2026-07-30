@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.4.0] - 2026-07-30
+
+### Added
+- Added a standard direct-access sign-in page with password-manager-friendly
+  `username` and `current-password` fields for iOS, Safari, and 1Password.
+- Added server-side direct-access sessions with random tokens, a 12-hour
+  lifetime, and `HttpOnly`, `Secure`, `SameSite=Strict` cookies. Sessions are
+  also invalidated whenever the add-on restarts.
+- Added an explicit sign-out control to the top bar for direct sessions. It is
+  hidden when Replicarr is opened through Home Assistant Ingress.
+- Added login rate limiting: five failures within five minutes trigger a
+  15-minute lockout for that client.
+- Added same-origin checks for state-changing direct-session requests and ten
+  authentication regression tests covering login, logout, HTTPS enforcement,
+  cookies, lockout, cross-site rejection, disabled direct access, and Ingress.
+
+### Changed
+- Direct access now requires an HTTPS URL in front of Replicarr's published
+  port. Use an HTTPS reverse proxy or secure publishing service such as
+  Tailscale Serve; Replicarr refuses to issue a session over plain HTTP.
+- Existing `basic_auth_username` and `basic_auth_password` add-on settings are
+  retained and automatically used by the new form login, so credentials do
+  not need to be reconfigured.
+- Updated direct-access documentation, add-on option descriptions, and startup
+  logging for session-based authentication.
+
+### Removed
+- Removed the browser-native HTTP Basic Auth challenge. Existing direct users
+  will be signed out once during upgrade and will then use the new login page.
+
 ## [0.3.24] - 2026-07-26
 
 ### Fixed

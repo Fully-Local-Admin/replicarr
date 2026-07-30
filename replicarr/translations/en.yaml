@@ -21,12 +21,12 @@ configuration:
     name: Direct access username
     description: >
       Username required when reaching Replicarr through its directly-exposed
-      port (outside Home Assistant Ingress). Leave blank, along with the
-      password, to keep direct access disabled — Ingress access is never
-      affected either way.
+      port through HTTPS (outside Home Assistant Ingress). Used by the
+      autofill-friendly direct sign-in page. Leave blank, along with the
+      password, to keep direct access disabled; Ingress is unaffected.
   basic_auth_password:
     name: Direct access password
     description: >
       Password required when reaching Replicarr through its directly-exposed
-      port (outside Home Assistant Ingress). Must be set together with the
-      username to enable direct access.
+      port through HTTPS (outside Home Assistant Ingress). Must be set
+      together with the username to enable direct sign-in.

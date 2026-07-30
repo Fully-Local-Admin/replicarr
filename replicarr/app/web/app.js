@@ -1450,6 +1450,19 @@ async function loadFolderOrders() {
   folderOrders = await api("api/folder-orders");
 }
 
+async function loadAuthSession() {
+  const auth = await api("api/auth/session");
+  $("#btn-logout").classList.toggle("hidden", !auth.direct);
+}
+
+async function logoutDirectAccess() {
+  try {
+    await api("logout", { method: "POST" });
+  } finally {
+    window.location.href = "login";
+  }
+}
+
 // ── Dark mode ─────────────────────────────────────────────────────────────────
 function applyTheme(dark) {
   document.documentElement.classList.toggle("dark", dark);
@@ -1467,7 +1480,7 @@ function toggleTheme() {
   const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
   applyTheme(saved ? saved === "dark" : prefersDark);
 
-  await Promise.all([loadInstances(), loadFolderOrders()]);
+  await Promise.all([loadInstances(), loadFolderOrders(), loadAuthSession()]);
   await poll();
   switchTab("overview");
   // Poll on a timer — see the note above poll()'s definition for why this
@@ -1479,6 +1492,7 @@ function toggleTheme() {
 Object.assign(window, {
   toggleTheme,
   toggleDetailPanel,
+  logoutDirectAccess,
   switchTab, selectInstance, openInstanceManagement, selectFolder, renderFolderTable, closeDetail, detailTab,
   openProblemResolution, openProblemTooltip, scheduleProblemTooltipClose,
   startFolderDrag, dragOverFolderRow, finishFolderDrag,
