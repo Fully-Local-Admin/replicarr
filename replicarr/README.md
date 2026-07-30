@@ -27,7 +27,7 @@ multiple [Syncthing](https://syncthing.net/) instances from one place.
 |--------|-------------|
 | `log_level` | Backend log verbosity (`info` recommended) |
 | `instances` | Optional list of Syncthing instances to pre-configure |
-| `basic_auth_username` / `basic_auth_password` | Credentials for the autofill-friendly login used on Replicarr's directly-exposed port (not Ingress). Direct login requires HTTPS and sessions expire after 12 hours. Leave both blank to keep direct access disabled. |
+| `basic_auth_username` / `basic_auth_password` | Credentials for the autofill-friendly login used on Replicarr's directly-exposed port (not Ingress). Direct login requires HTTPS and sessions expire after 7 days. Leave both blank to keep direct access disabled. |
 
 Each instance under `instances` needs `name`, `url`, and `api_key`.
 Additional instances can be added at runtime through the dashboard.

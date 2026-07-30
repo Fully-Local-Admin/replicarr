@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1] - 2026-07-30
+
+### Changed
+- Extended direct-access login sessions from 12 hours to 7 days. Sessions are
+  still invalidated immediately by signing out or restarting the add-on.
+- Added a regression assertion for the seven-day session-cookie lifetime and
+  updated the direct-access documentation.
+
 ## [0.4.0] - 2026-07-30
 
 ### Added

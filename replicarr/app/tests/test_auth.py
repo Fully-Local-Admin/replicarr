@@ -56,6 +56,7 @@ def test_successful_login_sets_secure_session_and_allows_direct_access(client):
     assert "HttpOnly" in cookie
     assert "Secure" in cookie
     assert "SameSite=strict" in cookie
+    assert "Max-Age=604800" in cookie
 
     assert client.get("/").status_code == 200
     assert client.get("/api/auth/session").json() == {"direct": True}
