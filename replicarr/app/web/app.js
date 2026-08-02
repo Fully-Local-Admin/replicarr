@@ -735,7 +735,7 @@ function subfolderWasPushed(instId, folderId, subfolderPath) {
 
 function subfolderPushButton(instId, folderId, subfolderPath) {
   if (subfolderWasPushed(instId, folderId, subfolderPath)) {
-    return '<button class="btn btn-confirmed btn-sm" disabled>✓ Pushed</button>';
+    return '<button class="btn btn-confirmed btn-sm" disabled>Pushed</button>';
   }
   return `<button class="btn btn-ghost btn-sm" onclick="openPushModal(event,'${esc(instId)}','${esc(folderId)}',this.closest('.subfolder-row').dataset.path)">Push →</button>`;
 }
@@ -752,7 +752,13 @@ function updateSubfolderPushButtons() {
       row.dataset.path
     );
     if (pushed && !button.classList.contains("btn-confirmed")) {
-      button.outerHTML = '<button class="btn btn-confirmed btn-sm" disabled>✓ Pushed</button>';
+      button.outerHTML = '<button class="btn btn-confirmed btn-sm" disabled>Pushed</button>';
+    } else if (!pushed && button.classList.contains("btn-confirmed")) {
+      button.outerHTML = subfolderPushButton(
+        browser.dataset.instanceId,
+        browser.dataset.folderId,
+        row.dataset.path
+      );
     }
   });
 }
@@ -978,12 +984,17 @@ function renderSubfolderTransfers() {
   const el = $("#subfolder-transfers");
 
   const row = (t) => {
+    const transferAttrs = `data-source-instance-id="${esc(t.sourceInstanceId)}" data-folder-id="${esc(t.folderId)}" data-subfolder-path="${esc(t.subfolderPath)}" data-target-instance-id="${esc(t.targetInstanceId)}"`;
+    const deleteButton = '<button class="btn btn-danger btn-sm" onclick="deleteSubfolderTransfer(event,this)">Delete</button>';
     if (t.state === "error") {
-      return `<tr><td colspan="6" class="offline-row" style="padding:10px 20px">${esc(t.subfolderPath)} (${esc(t.sourceInstanceName)} → ${esc(t.targetInstanceName)}): ${esc(t.error || "Error")}</td></tr>`;
+      return `<tr ${transferAttrs}>
+        <td colspan="6" class="offline-row" style="padding:10px 20px">${esc(t.subfolderPath)} (${esc(t.sourceInstanceName)} → ${esc(t.targetInstanceName)}): ${esc(t.error || "Error")}</td>
+        <td>${deleteButton}</td>
+      </tr>`;
     }
     const pct = t.percent ?? (t.state === "complete" ? 100 : 0);
     const fc  = pct >= 100 ? "complete" : "";
-    return `<tr>
+    return `<tr ${transferAttrs}>
       <td><div class="td-name"><div class="td-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg></div>
         <div><div>${esc(t.subfolderPath)}</div><div class="td-meta mono">${esc(t.folderLabel)}</div></div>
       </div></td>
@@ -992,18 +1003,20 @@ function renderSubfolderTransfers() {
       <td><div class="progress-bar"><div class="progress-fill ${fc}" style="width:${pct}%"></div></div><div class="text-xs text-2 mt-4">${pct}% · ${fmtBytes(t.needBytes)} left</div></td>
       <td class="text-sm">${fmtSpeed(t.speedBytesPerSec)}</td>
       <td class="text-sm">${fmtEta(t.etaSeconds)}</td>
+      <td>${deleteButton}</td>
     </tr>`;
   };
 
   const table = (rows, emptyMessage) => !rows.length
     ? `<div class="empty-state transfer-empty"><h3>${emptyMessage}</h3></div>`
     : `<table class="table"><thead><tr>
-        <th style="width:26%">Subfolder</th>
-        <th style="width:18%">From → To</th>
+        <th style="width:23%">Subfolder</th>
+        <th style="width:16%">From → To</th>
         <th style="width:10%">Size</th>
-        <th style="width:24%">Progress</th>
-        <th style="width:12%">Speed <span class="text-3">(approx)</span></th>
-        <th style="width:10%">ETA</th>
+        <th style="width:22%">Progress</th>
+        <th style="width:11%">Speed <span class="text-3">(approx)</span></th>
+        <th style="width:9%">ETA</th>
+        <th style="width:9%">Actions</th>
       </tr></thead><tbody>${rows.map(row).join("")}</tbody></table>`;
 
   const inProgress = subfolderTransfersData.filter(t => t.state !== "complete");
@@ -1031,6 +1044,26 @@ function renderSubfolderTransfers() {
 function setTransferTab(tab) {
   _transferTab = tab === "completed" ? "completed" : "progress";
   renderSubfolderTransfers();
+}
+
+async function deleteSubfolderTransfer(event, button) {
+  event.stopPropagation();
+  const row = button.closest("tr");
+  if (!confirm("Delete this transfer and stop selectively syncing this subfolder? Files already downloaded are not deleted. You can push the subfolder again afterwards.")) return;
+  button.disabled = true;
+  try {
+    const params = new URLSearchParams({
+      subfolder_path: row.dataset.subfolderPath,
+      target_instance_id: row.dataset.targetInstanceId,
+    });
+    await api(`api/folders/${encodeURIComponent(row.dataset.sourceInstanceId)}/${encodeURIComponent(row.dataset.folderId)}/push-subfolder?${params}`, {
+      method: "DELETE",
+    });
+    await poll();
+  } catch (e) {
+    button.disabled = false;
+    alert(e.message);
+  }
 }
 
 // ── Instance wizard ───────────────────────────────────────────────────────────
@@ -1539,6 +1572,6 @@ Object.assign(window, {
   openAddFolder, wizFolderNext, wizFolderBack, toggleStorageRoot, pickPath,
   searchSubfolders, revealSearchResult, pushSearchResult, toggleSubfolderRow,
   openPushModal, renderPushPathChoices, selectPushTargetPath, executePush,
-  setTransferTab,
+  setTransferTab, deleteSubfolderTransfer,
   closeModal, poll,
 });

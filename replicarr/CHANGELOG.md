@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.4.3] - 2026-08-02
+
+### Added
+- Added a **Delete** action to in-progress, completed, and failed subfolder
+  transfers. It stops selectively syncing the subfolder and removes the
+  transfer record without deleting files already downloaded, allowing the
+  subfolder to be pushed again.
+
+### Changed
+- Removed the checkmark from the green **Pushed** button so it more closely
+  matches the size of the **Push** button.
+- Deleting a transfer immediately restores its subfolder's **Push** button in
+  an already-open folder tree.
+
 ## [0.4.2] - 2026-08-02
 
 ### Added
