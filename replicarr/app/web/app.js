@@ -112,6 +112,7 @@ function applyPoll() {
   if (activeTab === "overview")   renderOverview();
   if (activeTab === "transfers")  renderTransfers();
   if (selectedInstId)             updateDetailPanel();
+  updateSubfolderPushButtons();
 }
 
 // ── Tab routing ───────────────────────────────────────────────────────────────
@@ -724,7 +725,42 @@ async function actFolderDetail(action, instId, folderId) {
 // subfolders can be pushed — Syncthing folders sync as a whole, so a
 // subfolder push works via selective sync on the target rather than
 // creating a second, independently-registered folder inside the first.
+function subfolderWasPushed(instId, folderId, subfolderPath) {
+  return subfolderTransfersData.some(t =>
+    t.sourceInstanceId === instId &&
+    t.folderId === folderId &&
+    t.subfolderPath === subfolderPath
+  );
+}
+
+function subfolderPushButton(instId, folderId, subfolderPath) {
+  if (subfolderWasPushed(instId, folderId, subfolderPath)) {
+    return '<button class="btn btn-confirmed btn-sm" disabled>✓ Pushed</button>';
+  }
+  return `<button class="btn btn-ghost btn-sm" onclick="openPushModal(event,'${esc(instId)}','${esc(folderId)}',this.closest('.subfolder-row').dataset.path)">Push →</button>`;
+}
+
+function updateSubfolderPushButtons() {
+  document.querySelectorAll(".subfolder-row[data-path]").forEach(row => {
+    const browser = row.closest(".subfolder-browser");
+    if (!browser) return;
+    const button = row.querySelector(":scope > .subfolder-row-main > button");
+    if (!button) return;
+    const pushed = subfolderWasPushed(
+      browser.dataset.instanceId,
+      browser.dataset.folderId,
+      row.dataset.path
+    );
+    if (pushed && !button.classList.contains("btn-confirmed")) {
+      button.outerHTML = '<button class="btn btn-confirmed btn-sm" disabled>✓ Pushed</button>';
+    }
+  });
+}
+
 async function renderSubfolderBrowser(instId, folderId, containerEl, prefix) {
+  const browser = containerEl.closest(".subfolder-browser") || containerEl;
+  browser.dataset.instanceId = instId;
+  browser.dataset.folderId = folderId;
   containerEl.innerHTML = '<div class="loading-row">Loading…</div>';
   try {
     const r = await api(`api/folders/${instId}/${folderId}/browse?prefix=${encodeURIComponent(prefix)}`);
@@ -737,10 +773,10 @@ async function renderSubfolderBrowser(instId, folderId, containerEl, prefix) {
         <div class="subfolder-row-main">
           <div class="subfolder-row-toggle" onclick="toggleSubfolderRow(this,'${esc(instId)}','${esc(folderId)}')">
             <svg class="subfolder-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <svg class="subfolder-folder-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             <span>${esc(entry.name)}</span>
           </div>
-          <button class="btn btn-ghost btn-sm" onclick="openPushModal(event,'${esc(instId)}','${esc(folderId)}',this.closest('.subfolder-row').dataset.path)">Push →</button>
+          ${subfolderPushButton(instId, folderId, entry.path)}
         </div>
         <div class="subfolder-children hidden"></div>
       </div>`).join("");

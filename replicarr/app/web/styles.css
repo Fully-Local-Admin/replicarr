@@ -487,6 +487,8 @@ body {
 .btn-primary:hover:not(:disabled) { background: var(--accent-dk); }
 .btn-ghost   { background: none; color: var(--text); border-color: var(--border-dk); }
 .btn-ghost:hover:not(:disabled) { background: var(--bg); }
+.btn-confirmed { background: var(--green-lt); color: var(--green); border-color: var(--green); }
+.btn-confirmed:disabled { opacity: 1; cursor: default; }
 .btn-danger  { background: none; color: var(--red); border-color: #fca5a5; }
 .btn-danger:hover:not(:disabled) { background: var(--red-lt); }
 .btn-sm { padding: 4px 10px; font-size: 12px; }
@@ -902,6 +904,7 @@ body {
 .subfolder-row-toggle span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .subfolder-chevron { color: var(--text-3); flex-shrink: 0; transition: transform 0.15s; }
 .subfolder-chevron.open { transform: rotate(90deg); }
+.subfolder-folder-icon { flex: 0 0 14px; }
 .subfolder-children { padding-left: 19px; }
 .subfolder-row.search-highlight > .subfolder-row-main {
   background: var(--accent-lt);

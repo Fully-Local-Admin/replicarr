@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.2] - 2026-08-02
+
+### Added
+- Subfolders already pushed by Replicarr now show a green, disabled
+  **Pushed** confirmation button instead of continuing to offer **Push**.
+
+### Changed
+- Standardized folder icons in the subfolder browser at the same fixed size as
+  main-folder icons, preventing them from shrinking in narrow rows.
+
+### Fixed
+- Subfolder search no longer shows unpushed paths on selective-sync
+  destinations just because Syncthing's global database knows they exist on
+  the source. Pushed paths and their descendants remain searchable at both
+  genuine locations.
+
 ## [0.4.1] - 2026-07-30
 
 ### Changed

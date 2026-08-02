@@ -129,6 +129,58 @@ def test_search_subfolders_returns_actionable_location(client, monkeypatch):
     }]
 
 
+def test_search_filters_unpushed_paths_from_selective_target(client, monkeypatch):
+    monkeypatch.setattr(main, "_status_cache", [
+        {
+            "id": "source",
+            "online": True,
+            "folders": [{"id": "tvshows", "label": "TV Shows"}],
+        },
+        {
+            "id": "target",
+            "online": True,
+            "folders": [{"id": "tvshows", "label": "TV Shows"}],
+        },
+    ])
+
+    async def browse_global_tree(url, key, folder_id, prefix="", levels=1):
+        return [
+            {
+                "name": "Paradise",
+                "type": "FILE_INFO_TYPE_DIRECTORY",
+                "children": [{"name": "Season 1", "type": "FILE_INFO_TYPE_DIRECTORY"}],
+            },
+            {"name": "Breaking Bad", "type": "FILE_INFO_TYPE_DIRECTORY"},
+        ]
+
+    monkeypatch.setattr(main.st, "get_db_browse", browse_global_tree)
+    main.store.add_subfolder_push(
+        "source", "tvshows", "TV Shows", "Paradise", "target", "/data/tv", 1000
+    )
+
+    # Syncthing advertises the unpushed sibling on both peers, but Replicarr
+    # must not present the target's global-only entry as a real location.
+    unpushed = client.get("/api/search/subfolders?q=breaking", headers=HDR).json()["results"]
+    assert [result["instanceId"] for result in unpushed] == ["source"]
+
+    # The pushed path and anything below it genuinely can exist at both ends.
+    pushed = client.get("/api/search/subfolders?q=paradise", headers=HDR).json()["results"]
+    assert {result["instanceId"] for result in pushed} == {"source", "target"}
+    nested = client.get("/api/search/subfolders?q=season", headers=HDR).json()["results"]
+    assert {result["instanceId"] for result in nested} == {"source", "target"}
+
+    # Additional and removed mappings immediately change what is considered
+    # physically present on the selective destination.
+    main.store.add_subfolder_push(
+        "source", "tvshows", "TV Shows", "Breaking Bad", "target", "/data/tv", 1000
+    )
+    newly_pushed = client.get("/api/search/subfolders?q=breaking", headers=HDR).json()["results"]
+    assert {result["instanceId"] for result in newly_pushed} == {"source", "target"}
+    main.store.remove_subfolder_push("source", "tvshows", "Breaking Bad", "target")
+    removed = client.get("/api/search/subfolders?q=breaking", headers=HDR).json()["results"]
+    assert [result["instanceId"] for result in removed] == ["source"]
+
+
 def test_folder_order_api_persists_per_instance(client):
     saved = client.put(
         "/api/folder-orders/source",

@@ -1190,6 +1190,18 @@ async def search_subfolders(q: str):
         raise HTTPException(400, "Enter at least 2 characters")
 
     instances = {i["id"]: i for i in store.load_instances()}
+    # A selective-sync target knows the source folder's entire global tree,
+    # including paths its ignore rules deliberately keep off disk.  Treating
+    # db/browse as a local filesystem listing therefore creates ghost search
+    # results on the target.  Replicarr's push records are the authoritative
+    # list of paths that may actually exist there.
+    selective_target_paths: dict[tuple[str, str], list[str]] = {}
+    for push in store.load_subfolder_pushes():
+        key = (push["target_instance_id"], push["folder_id"])
+        selective_target_paths.setdefault(key, []).append(
+            push["subfolder_path"].strip("/")
+        )
+
     jobs: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for status in _status_cache:
         inst = instances.get(status["id"])
@@ -1201,6 +1213,7 @@ async def search_subfolders(q: str):
         raw = await st.get_db_browse(
             inst["url"], inst["api_key"], folder["id"], prefix="", levels=None
         )
+        allowed_paths = selective_target_paths.get((inst["id"], folder["id"]))
         return [
             {
                 "instanceId": inst["id"],
@@ -1212,6 +1225,14 @@ async def search_subfolders(q: str):
             }
             for entry in _flatten_browse_directories(raw)
             if query in entry["path"].casefold()
+            and (
+                allowed_paths is None
+                or any(
+                    entry["path"] == allowed
+                    or entry["path"].startswith(f"{allowed}/")
+                    for allowed in allowed_paths
+                )
+            )
         ]
 
     searched = await asyncio.gather(
