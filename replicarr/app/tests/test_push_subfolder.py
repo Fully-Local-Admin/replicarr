@@ -283,6 +283,39 @@ def test_second_push_subfolder_reuses_share_and_widens_selective_sync(client, fa
     assert len(main.store.load_subfolder_pushes()) == 2
 
 
+def test_push_escapes_syncthing_pattern_characters_and_unpush_removes_them(client, fakes):
+    path = r"Show [REPACK] {Extended} S01? Cut*"
+    r = client.post(
+        "/api/folders/source/tvshows/push-subfolder",
+        json={"subfolder_path": path, "target_instance_id": "target", "target_path": "/data/tv"},
+        headers=HDR,
+    )
+    assert r.status_code == 200, r.text
+    assert fakes["http://target"].ignores["tvshows"] == [
+        r"!/Show \[REPACK\] \{Extended\} S01\? Cut\*",
+        r"!/Show \[REPACK\] \{Extended\} S01\? Cut\*/**",
+        "/*",
+    ]
+
+    removed = client.request(
+        "DELETE",
+        "/api/folders/source/tvshows/push-subfolder",
+        params={"subfolder_path": path, "target_instance_id": "target"},
+        headers=HDR,
+    )
+    assert removed.status_code == 204, removed.text
+    assert fakes["http://target"].ignores["tvshows"] == ["/*"]
+
+
+def test_selective_sync_replaces_legacy_unescaped_patterns():
+    path = "Show [REPACK]"
+    assert main._selective_sync_ignores([
+        "!/Show [REPACK]", "!/Show [REPACK]/**", "/*",
+    ], path) == [
+        r"!/Show \[REPACK\]", r"!/Show \[REPACK\]/**", "/*",
+    ]
+
+
 def test_subfolder_transfer_progress_is_scoped_to_the_pushed_subfolder(client, fakes):
     client.post(
         "/api/folders/source/tvshows/push-subfolder",

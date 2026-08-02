@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.4] - 2026-08-02
+
+### Fixed
+- Escaped Syncthing pattern characters in literal subfolder names, allowing
+  selective pushes of folders containing characters such as `[REPACK]`,
+  `{Extended}`, `?`, or `*` to match and sync correctly.
+- Replaced legacy unescaped rules for a path when it is pushed again, and made
+  transfer deletion remove either the legacy or corrected rule format.
+
 ## [0.4.3] - 2026-08-02
 
 ### Added

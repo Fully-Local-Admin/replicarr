@@ -1271,23 +1271,42 @@ def _sum_browse_size(raw: Any) -> int:
     return total
 
 
+def _escape_syncthing_pattern_path(path: str) -> str:
+    """Escape a literal Linux Syncthing path for use inside an ignore pattern."""
+    special = frozenset(r"\*?[]{}")
+    return "".join(f"\\{char}" if char in special else char for char in path)
+
+
+def _selective_sync_patterns(subfolder_path: str, *, escaped: bool = True) -> tuple[str, str]:
+    path = _escape_syncthing_pattern_path(subfolder_path) if escaped else subfolder_path
+    return f"!/{path}", f"!/{path}/**"
+
+
 def _selective_sync_ignores(existing: list[str], subfolder_path: str) -> list[str]:
     """
     Adds `subfolder_path` to the set of selectively-synced items in an
     existing ignore list, keeping include ("!"-prefixed) patterns ahead of
     the catch-all deny so Syncthing's first-match-wins evaluation lets the
     included subfolders through. Convention taken from Syncthing's own
-    documented "sync only these items" recipe — not independently verified
-    against a live instance.
+    documented "sync only these items" recipe. Paths are literal folder names,
+    so Syncthing glob metacharacters must be escaped before they are written.
     """
-    includes = [p for p in existing if p.startswith("!")]
-    denies = [p for p in existing if not p.startswith("!")]
-    for pattern in (f"!/{subfolder_path}", f"!/{subfolder_path}/**"):
+    directives = [p for p in existing if p.startswith(("#", "//"))]
+    legacy_patterns = set(_selective_sync_patterns(subfolder_path, escaped=False))
+    escaped_patterns = _selective_sync_patterns(subfolder_path)
+    # Replace Replicarr's legacy unescaped rules for this same path rather
+    # than leaving a broken wildcard rule beside the corrected literal one.
+    includes = [
+        p for p in existing
+        if p.startswith("!") and (p not in legacy_patterns or p in escaped_patterns)
+    ]
+    denies = [p for p in existing if not p.startswith(("!", "#", "//"))]
+    for pattern in escaped_patterns:
         if pattern not in includes:
             includes.append(pattern)
     if "/*" not in denies:
         denies.append("/*")
-    return includes + denies
+    return directives + includes + denies
 
 
 @app.post("/api/folders/{inst_id}/{folder_id}/push-subfolder")
@@ -1389,10 +1408,11 @@ async def unpush_subfolder(inst_id: str, folder_id: str, subfolder_path: str, ta
     target_inst = _get_instance(target_instance_id)
     try:
         current_ignores = await st.get_ignores(target_inst["url"], target_inst["api_key"], folder_id)
-        remaining = [
-            p for p in current_ignores
-            if p not in (f"!/{subfolder_path}", f"!/{subfolder_path}/**")
-        ]
+        generated_patterns = {
+            *_selective_sync_patterns(subfolder_path, escaped=False),
+            *_selective_sync_patterns(subfolder_path),
+        }
+        remaining = [p for p in current_ignores if p not in generated_patterns]
         await st.set_ignores(target_inst["url"], target_inst["api_key"], folder_id, remaining)
     except httpx.HTTPStatusError as e:
         raise HTTPException(e.response.status_code, e.response.text)
